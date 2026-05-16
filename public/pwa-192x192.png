@@ -1,0 +1,5 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 192 192'>
+  <defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%234f46e5'/><stop offset='100%' stop-color='%237c3aed'/></linearGradient></defs>
+  <rect width='192' height='192' rx='42.24' fill='url(%23g)'/>
+  <text x='96' y='124.80000000000001' font-size='96' text-anchor='middle' font-family='system-ui'>✨</text>
+</svg>
