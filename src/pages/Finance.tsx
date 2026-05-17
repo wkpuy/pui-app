@@ -46,7 +46,7 @@ export default function Finance() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <PageHeader title="รายรับ-รายจ่าย" rightAction={{ label: '＋ เพิ่ม', onClick: () => { setEditRecord(null); setShowForm(true) } }} />
+      <PageHeader title="รายรับ-รายจ่าย" gradient="from-emerald-500 to-teal-600" rightAction={{ label: '＋ เพิ่ม', onClick: () => { setEditRecord(null); setShowForm(true) } }} />
 
       {/* Month selector */}
       <div className="bg-white px-4 py-2 border-b border-gray-100 flex items-center justify-between">

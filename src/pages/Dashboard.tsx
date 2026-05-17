@@ -75,11 +75,11 @@ export default function Dashboard() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Hero */}
-      <div className="bg-gradient-to-br from-indigo-600 to-purple-700 px-5 pt-[calc(env(safe-area-inset-top)+16px)] pb-6 text-white">
+      <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 px-5 pt-[calc(env(safe-area-inset-top)+16px)] pb-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-sm opacity-75">{greeting} 👋</div>
-            <div className="text-2xl font-bold">{profile.nickname}</div>
+            <div className="text-[28px] font-bold leading-tight">{profile.nickname}</div>
           </div>
           <button onClick={() => navigate('/settings')} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl">
             ⚙️

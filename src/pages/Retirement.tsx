@@ -45,7 +45,7 @@ export default function Retirement() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <PageHeader title="แผนเกษียณ" rightAction={{ label: plan ? 'แก้ไข' : '+ ตั้งค่า', onClick: () => setShowForm(true) }} />
+      <PageHeader title="แผนเกษียณ" gradient="from-orange-500 to-amber-500" rightAction={{ label: plan ? 'แก้ไข' : '+ ตั้งค่า', onClick: () => setShowForm(true) }} />
       <div className="flex-1 overflow-y-auto">
         {!plan ? (
           <div className="text-center py-16 text-gray-400 px-8">

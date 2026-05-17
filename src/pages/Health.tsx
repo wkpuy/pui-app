@@ -134,6 +134,7 @@ export default function Health() {
     <div className="flex-1 flex flex-col overflow-hidden">
       <PageHeader
         title="สุขภาพ"
+        gradient="from-rose-500 to-pink-600"
         rightAction={{
           label: '＋ เพิ่ม',
           onClick: () => tab === 'daily' ? openAddDaily() : openAddRecord(),

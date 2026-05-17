@@ -102,6 +102,7 @@ export default function Investment() {
       <Toast message={toastMsg?.text ?? null} type={toastMsg?.type} onDone={() => setToastMsg(null)} />
       <PageHeader
         title="การลงทุน"
+        gradient="from-blue-500 to-cyan-600"
         rightAction={{ label: '＋ เพิ่ม', onClick: () => { setEditItem(null); setShowForm(true) } }}
       />
       <div className="flex-1 overflow-y-auto">

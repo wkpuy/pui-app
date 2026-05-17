@@ -10,7 +10,7 @@ export function Card({ children, className = '', onClick }: Props) {
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-2xl p-4 shadow-sm ${onClick ? 'active:scale-[0.98] cursor-pointer' : ''} ${className}`}
+      className={`bg-white rounded-2xl p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] ${onClick ? 'active:scale-[0.98] cursor-pointer' : ''} ${className}`}
     >
       {children}
     </div>
@@ -22,7 +22,7 @@ export function CardTitle({ children }: { children: ReactNode }) {
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
-  return <div className="px-5 pt-4 pb-1 text-[13px] font-semibold text-gray-500">{children}</div>
+  return <div className="px-5 pt-5 pb-1.5 text-[13px] font-semibold text-gray-600">{children}</div>
 }
 
 export function Divider() {

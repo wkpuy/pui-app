@@ -144,7 +144,7 @@ export default function Calendar() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <PageHeader title="ปฏิทิน" />
+      <PageHeader title="ปฏิทิน" gradient="from-sky-500 to-blue-600" />
       <div className="flex-1 overflow-y-auto">
 
         {!tokens?.accessToken ? (

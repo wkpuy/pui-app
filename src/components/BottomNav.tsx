@@ -1,13 +1,67 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 
-const tabs = [
-  { path: '/',           icon: '🏠', label: 'หน้าหลัก' },
-  { path: '/investment', icon: '💰', label: 'ลงทุน' },
-  { path: '/health',     icon: '❤️', label: 'สุขภาพ' },
-  { path: '/finance',    icon: '📊', label: 'การเงิน' },
-  { path: '/retirement', icon: '🎯', label: 'เกษียณ' },
-  { path: '/calendar',   icon: '📅', label: 'ปฏิทิน' },
-  { path: '/coach',      icon: '🤖', label: 'AI Coach' },
+function HomeIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/>
+      <polyline points="9 21 9 12 15 12 15 21"/>
+    </svg>
+  )
+}
+function ChartIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+    </svg>
+  )
+}
+function HeartIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+    </svg>
+  )
+}
+function WalletIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="6" width="22" height="14" rx="2"/>
+      <path d="M16 14a2 2 0 100-4 2 2 0 000 4z" fill="currentColor" stroke="none"/>
+      <path d="M1 10h22"/>
+    </svg>
+  )
+}
+function TargetIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+    </svg>
+  )
+}
+function CalendarIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  )
+}
+function SparkleIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </svg>
+  )
+}
+
+const TABS = [
+  { path: '/',           label: 'หน้าหลัก', grad: 'from-violet-500 to-indigo-600',  Icon: HomeIcon },
+  { path: '/investment', label: 'ลงทุน',    grad: 'from-blue-500 to-cyan-600',      Icon: ChartIcon },
+  { path: '/health',     label: 'สุขภาพ',   grad: 'from-rose-500 to-pink-600',      Icon: HeartIcon },
+  { path: '/finance',    label: 'การเงิน',  grad: 'from-emerald-500 to-teal-600',   Icon: WalletIcon },
+  { path: '/retirement', label: 'เกษียณ',   grad: 'from-orange-500 to-amber-500',   Icon: TargetIcon },
+  { path: '/calendar',   label: 'ปฏิทิน',  grad: 'from-sky-500 to-blue-600',       Icon: CalendarIcon },
+  { path: '/coach',      label: 'AI Coach', grad: 'from-purple-500 to-violet-600',  Icon: SparkleIcon },
 ]
 
 export default function BottomNav() {
@@ -15,19 +69,24 @@ export default function BottomNav() {
   const navigate = useNavigate()
 
   return (
-    <nav className="flex-shrink-0 bg-white/95 backdrop-blur border-t border-gray-100 pb-[env(safe-area-inset-bottom)]">
+    <nav className="flex-shrink-0 bg-white/95 backdrop-blur-xl border-t border-gray-100/80 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_24px_rgba(0,0,0,0.07)]">
       <div className="flex">
-        {tabs.map(tab => {
-          const active = location.pathname === tab.path
+        {TABS.map(({ path, label, grad, Icon }) => {
+          const active = location.pathname === path
           return (
             <button
-              key={tab.path}
-              onClick={() => navigate(tab.path, { replace: true })}
-              className="flex-1 flex flex-col items-center py-2 gap-0.5 min-h-[52px]"
+              key={path}
+              onClick={() => navigate(path, { replace: true })}
+              className="flex-1 flex flex-col items-center pt-2 pb-1.5 gap-0.5 min-h-[56px]"
             >
-              <span className="text-lg leading-none">{tab.icon}</span>
-              <span className={`text-[9px] font-medium leading-none ${active ? 'text-indigo-600' : 'text-gray-400'}`}>
-                {tab.label}
+              <div className={`w-10 h-[34px] rounded-xl flex items-center justify-center transition-all duration-200
+                ${active ? `bg-gradient-to-br ${grad} shadow-md` : ''}`}>
+                <span className={`transition-colors duration-200 ${active ? 'text-white' : 'text-gray-400'}`}>
+                  <Icon />
+                </span>
+              </div>
+              <span className={`text-[9px] font-semibold leading-none transition-colors duration-200 ${active ? 'text-gray-700' : 'text-gray-400'}`}>
+                {label}
               </span>
             </button>
           )

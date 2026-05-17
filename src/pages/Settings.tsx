@@ -191,7 +191,7 @@ export default function Settings() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <PageHeader title="ตั้งค่า" />
+      <PageHeader title="ตั้งค่า" gradient="from-slate-500 to-gray-700" />
       <div className="flex-1 overflow-y-auto">
 
         {syncStatus && (
