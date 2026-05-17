@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
-import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents } from '../api/google'
+import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -16,6 +16,8 @@ export default function Settings() {
   const [geminiKey, setGeminiKey] = useState('')
   const [googleClientId, setGoogleClientId] = useState('')
   const [syncStatus, setSyncStatus] = useState('')
+  const [driveBackup, setDriveBackup] = useState<{ id: string; modifiedTime: string } | null>(null)
+  const [syncMonths, setSyncMonths] = useState(1)
 
   useEffect(() => {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
@@ -50,6 +52,11 @@ export default function Settings() {
       if (existing?.id) await db.googleTokens.update(existing.id, tokenData)
       else await db.googleTokens.add(tokenData)
       setSyncStatus(`✓ เชื่อมต่อ Google แล้ว (${email})`)
+      // Check for Drive backup (for new device restore)
+      try {
+        const backup = await findDriveBackupFile(accessToken)
+        if (backup) setDriveBackup(backup)
+      } catch { /* ignore */ }
     } catch (e: any) {
       setSyncStatus(`❌ ${e.message}`)
     }
@@ -57,25 +64,29 @@ export default function Settings() {
 
   async function syncGoogleData() {
     if (!googleTokens?.accessToken) { setSyncStatus('กรุณาเชื่อมต่อ Google ก่อน'); return }
-    setSyncStatus('กำลัง sync...')
+    const sinceDate = calcSinceDate(syncMonths)
+    setSyncStatus(`กำลัง sync ย้อนหลัง ${syncMonths} เดือน (ตั้งแต่ ${sinceDate.replace(/\//g, '/')})...`)
     try {
       // Sync calendar
       const events = await fetchCalendarEvents(googleTokens.accessToken)
       const dividendEvents = parseDividendEvents(events)
       await db.syncLog.add({ source: 'calendar', lastSyncAt: new Date().toISOString(), status: 'success', notes: `${events.length} events, ${dividendEvents.length} dividend` })
 
-      // Sync Gmail bank
-      const emails = await fetchGmailBankMessages(googleTokens.accessToken)
-      let added = 0
+      // Sync Gmail bank with selected date range + duplicate check
+      const emails = await fetchGmailBankMessages(googleTokens.accessToken, sinceDate)
+      let added = 0, skipped = 0
       for (const email of emails) {
         const parsed = parseBankEmail(email)
-        if (parsed.amount > 0) {
-          await db.financeRecords.add({ ...parsed, type: parsed.type as 'income' | 'expense', category: parsed.type === 'income' ? 'โอนเข้า' : 'โอนออก', source: parsed.source as any })
-          added++
+        if (parsed.amount <= 0) continue
+        if (parsed.rawRef) {
+          const exists = await db.financeRecords.where('rawRef').equals(parsed.rawRef).count()
+          if (exists > 0) { skipped++; continue }
         }
+        await db.financeRecords.add({ ...parsed, type: parsed.type as 'income' | 'expense', category: parsed.type === 'income' ? 'โอนเข้า' : 'โอนออก', source: parsed.source as any })
+        added++
       }
-      await db.syncLog.add({ source: 'gmail', lastSyncAt: new Date().toISOString(), status: 'success', notes: `${added} records` })
-      setSyncStatus(`✓ Sync เสร็จ: ${events.length} นัดหมาย, ${added} รายการธนาคาร`)
+      await db.syncLog.add({ source: 'gmail', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} records, ${skipped} skipped` })
+      setSyncStatus(`✓ Sync เสร็จ: ${events.length} นัดหมาย, +${added} รายการธนาคาร${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`)
     } catch (e: any) {
       setSyncStatus(`❌ Sync ล้มเหลว: ${e.message}`)
     }
@@ -108,8 +119,12 @@ export default function Settings() {
       retirementPlan: await db.retirementPlan.toArray(),
       financeRecords: await db.financeRecords.toArray(),
       emergencyFund: await db.emergencyFund.toArray(),
+      salaryRecords: await db.salaryRecords.toArray(),
+      condoMortgage: await db.condoMortgage.toArray(),
+      installments: await db.installments.toArray(),
       exportedAt: new Date().toISOString(),
     }
+    // Download local copy
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -117,6 +132,49 @@ export default function Settings() {
     a.download = `personal-app-backup-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
+    // Also upload to Drive if connected
+    if (googleTokens?.accessToken) {
+      try {
+        setSyncStatus('กำลัง backup ขึ้น Google Drive...')
+        const existing = await findDriveBackupFile(googleTokens.accessToken)
+        await uploadBackupToDrive(googleTokens.accessToken, data, existing?.id)
+        setSyncStatus(`✓ Export + Backup ขึ้น Drive แล้ว`)
+      } catch {
+        setSyncStatus('✓ Export สำเร็จ (Drive backup ล้มเหลว)')
+      }
+      setTimeout(() => setSyncStatus(''), 3000)
+    }
+  }
+
+  async function restoreFromDrive() {
+    if (!googleTokens?.accessToken || !driveBackup) return
+    if (!confirm('กู้คืนข้อมูลจาก Drive จะแทนที่ข้อมูลที่มีอยู่ทั้งหมด ยืนยัน?')) return
+    setSyncStatus('กำลังกู้คืนข้อมูลจาก Drive...')
+    try {
+      const data: any = await downloadDriveBackup(googleTokens.accessToken, driveBackup.id)
+      await applyImport(data)
+    } catch (e: any) {
+      setSyncStatus(`❌ กู้คืนล้มเหลว: ${e.message}`)
+    }
+  }
+
+  async function applyImport(data: any) {
+    try {
+      if (data.profile) await db.profile.bulkAdd(data.profile.map((d: any) => ({ ...d, id: undefined })))
+      if (data.investments) await db.investments.bulkAdd(data.investments.map((d: any) => ({ ...d, id: undefined })))
+      if (data.dividends) await db.dividends.bulkAdd(data.dividends.map((d: any) => ({ ...d, id: undefined })))
+      if (data.healthRecords) await db.healthRecords.bulkAdd(data.healthRecords.map((d: any) => ({ ...d, id: undefined })))
+      if (data.healthDaily) await db.healthDaily.bulkAdd(data.healthDaily.map((d: any) => ({ ...d, id: undefined })))
+      if (data.retirementPlan) await db.retirementPlan.bulkAdd(data.retirementPlan.map((d: any) => ({ ...d, id: undefined })))
+      if (data.financeRecords) await db.financeRecords.bulkAdd(data.financeRecords.map((d: any) => ({ ...d, id: undefined })))
+      if (data.salaryRecords) await db.salaryRecords.bulkAdd(data.salaryRecords.map((d: any) => ({ ...d, id: undefined })))
+      if (data.condoMortgage) await db.condoMortgage.bulkAdd(data.condoMortgage.map((d: any) => ({ ...d, id: undefined })))
+      if (data.installments) await db.installments.bulkAdd(data.installments.map((d: any) => ({ ...d, id: undefined })))
+      setSyncStatus('✓ Import สำเร็จ กำลังโหลดใหม่...')
+      setTimeout(() => window.location.reload(), 1500)
+    } catch {
+      setSyncStatus('❌ ไฟล์ไม่ถูกต้อง หรือข้อมูลซ้ำ')
+    }
   }
 
   async function importData(e: React.ChangeEvent<HTMLInputElement>) {
@@ -125,15 +183,7 @@ export default function Settings() {
     try {
       const text = await file.text()
       const data = JSON.parse(text)
-      if (data.profile) await db.profile.bulkAdd(data.profile.map((d: any) => ({ ...d, id: undefined })))
-      if (data.investments) await db.investments.bulkAdd(data.investments.map((d: any) => ({ ...d, id: undefined })))
-      if (data.dividends) await db.dividends.bulkAdd(data.dividends.map((d: any) => ({ ...d, id: undefined })))
-      if (data.healthRecords) await db.healthRecords.bulkAdd(data.healthRecords.map((d: any) => ({ ...d, id: undefined })))
-      if (data.healthDaily) await db.healthDaily.bulkAdd(data.healthDaily.map((d: any) => ({ ...d, id: undefined })))
-      if (data.retirementPlan) await db.retirementPlan.bulkAdd(data.retirementPlan.map((d: any) => ({ ...d, id: undefined })))
-      if (data.financeRecords) await db.financeRecords.bulkAdd(data.financeRecords.map((d: any) => ({ ...d, id: undefined })))
-      setSyncStatus('✓ Import สำเร็จ โหลดหน้าใหม่...')
-      setTimeout(() => window.location.reload(), 1500)
+      await applyImport(data)
     } catch {
       setSyncStatus('❌ ไฟล์ไม่ถูกต้อง')
     }
@@ -146,6 +196,28 @@ export default function Settings() {
 
         {syncStatus && (
           <div className="mx-4 mt-3 bg-indigo-50 text-indigo-700 text-[13px] font-medium px-4 py-2.5 rounded-xl">{syncStatus}</div>
+        )}
+
+        {/* Drive backup restore banner */}
+        {driveBackup && (
+          <div className="mx-4 mt-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[13px] font-bold text-blue-800">☁️ พบข้อมูลสำรองใน Drive</div>
+              <div className="text-[11px] text-blue-600 mt-0.5">
+                บันทึกล่าสุด {new Date(driveBackup.modifiedTime).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button onClick={restoreFromDrive}
+                className="bg-blue-600 text-white text-[12px] font-bold px-3 py-2 rounded-xl active:scale-95">
+                กู้คืน
+              </button>
+              <button onClick={() => setDriveBackup(null)}
+                className="text-gray-400 text-[12px] px-2 py-2 rounded-xl active:scale-95">
+                ✕
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Profile */}
@@ -216,9 +288,29 @@ export default function Settings() {
                 {googleTokens ? '🔄 เชื่อมต่อใหม่' : '🔗 เชื่อมต่อ Google'}
               </button>
               {googleTokens && (
-                <button onClick={syncGoogleData} className="bg-green-600 text-white font-semibold py-2.5 rounded-xl text-sm active:scale-95">
-                  📥 Sync ตอนนี้ (Calendar + Gmail)
-                </button>
+                <>
+                  {/* Month range selector */}
+                  <div>
+                    <div className="text-[12px] font-semibold text-gray-600 mb-2">ช่วงเวลา Gmail Bank sync</div>
+                    <div className="flex gap-2">
+                      {[1, 2, 3].map(m => {
+                        const since = calcSinceDate(m)
+                        const label = m === 1 ? 'เดือนนี้' : `${m} เดือน`
+                        const dateHint = since.replace(/(\d{4})\/(\d{2})\/(\d{2})/, '$3/$2/$1')
+                        return (
+                          <button key={m} onClick={() => setSyncMonths(m)}
+                            className={`flex-1 py-2 rounded-xl text-[12px] font-semibold border-2 transition-colors ${syncMonths === m ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-200 text-gray-600'}`}>
+                            <div>{label}</div>
+                            <div className={`text-[10px] mt-0.5 ${syncMonths === m ? 'opacity-80' : 'text-gray-400'}`}>จาก {dateHint}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <button onClick={syncGoogleData} className="bg-green-600 text-white font-semibold py-2.5 rounded-xl text-sm active:scale-95">
+                    📥 Sync ตอนนี้ (Calendar + Gmail)
+                  </button>
+                </>
               )}
             </div>
           </Card>
@@ -264,14 +356,40 @@ export default function Settings() {
         <div className="mx-4 mb-4">
           <Card>
             <div className="flex flex-col gap-3">
+              {/* Drive backup info */}
+              <div className={`rounded-xl px-3 py-2.5 text-[12px] ${googleTokens ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+                {googleTokens
+                  ? '☁️ เชื่อมต่อ Google แล้ว — Export จะ backup ขึ้น Drive อัตโนมัติ'
+                  : '☁️ เชื่อมต่อ Google เพื่อ backup อัตโนมัติขึ้น Drive'}
+              </div>
               <button onClick={exportData} className="bg-green-600 text-white font-bold py-3 rounded-xl text-sm active:scale-95">
-                📤 Export ข้อมูลทั้งหมด (JSON)
+                📤 Export ข้อมูลทั้งหมด
+                {googleTokens ? ' + Drive Backup' : ' (JSON)'}
               </button>
-              <label className="border-2 border-green-500 text-green-700 font-bold py-3 rounded-xl text-sm text-center cursor-pointer active:scale-95">
-                📥 Import ข้อมูล (JSON)
+              {googleTokens && (
+                <button onClick={async () => {
+                  if (!driveBackup) {
+                    setSyncStatus('กำลังค้นหาไฟล์สำรองใน Drive...')
+                    try {
+                      const backup = await findDriveBackupFile(googleTokens.accessToken)
+                      if (backup) { setDriveBackup(backup); setSyncStatus('') }
+                      else setSyncStatus('❌ ไม่พบไฟล์สำรองใน Drive')
+                    } catch { setSyncStatus('❌ ไม่สามารถเชื่อมต่อ Drive ได้') }
+                  } else {
+                    restoreFromDrive()
+                  }
+                }}
+                  className="border-2 border-blue-400 text-blue-600 font-bold py-3 rounded-xl text-sm active:scale-95">
+                  ☁️ กู้คืนจาก Drive Backup
+                </button>
+              )}
+              <label className="border-2 border-gray-300 text-gray-600 font-bold py-3 rounded-xl text-sm text-center cursor-pointer active:scale-95">
+                📥 Import จากไฟล์ (JSON)
                 <input type="file" accept=".json" onChange={importData} className="hidden" />
               </label>
-              <div className="text-[11px] text-gray-400 text-center">ใช้เพื่อย้ายข้อมูลเมื่อเปลี่ยน iPhone</div>
+              <div className="text-[11px] text-gray-400 text-center leading-relaxed">
+                เปลี่ยน iPhone ใหม่: ลง app → เชื่อมต่อ Google → กด "กู้คืนจาก Drive"
+              </div>
             </div>
           </Card>
         </div>

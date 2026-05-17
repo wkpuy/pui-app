@@ -35,22 +35,35 @@ const BIOMARKERS: Record<string, BiomarkerDef> = {
   lpA:             { label: 'Lp(a)', unit: 'mg/dL', normal: '<30', optimal: '<15', evaluate: v => v < 15 ? 'optimal' : v < 30 ? 'good' : v < 50 ? 'warning' : 'high', longevity: true },
   // Inflammation
   hsCrp:           { label: 'hs-CRP', unit: 'mg/L', normal: '<3', optimal: '<1', evaluate: v => v < 1 ? 'optimal' : v < 3 ? 'good' : v < 10 ? 'warning' : 'high', longevity: true },
+  homocysteine:    { label: 'Homocysteine', unit: 'µmol/L', normal: '<11', optimal: '<9', evaluate: v => v < 9 ? 'optimal' : v < 11 ? 'good' : v < 15 ? 'warning' : 'high', longevity: true },
+  omega3Index:     { label: 'Omega-3 Index', unit: '%', normal: '>4', optimal: '>8', evaluate: v => v >= 8 ? 'optimal' : v >= 5 ? 'good' : v >= 4 ? 'warning' : 'high', longevity: true },
   // Liver
-  alt:             { label: 'ALT', unit: 'U/L', normal: '<40', optimal: '<25', evaluate: v => v < 25 ? 'optimal' : v < 40 ? 'good' : 'high' },
-  ast:             { label: 'AST', unit: 'U/L', normal: '<40', optimal: '<25', evaluate: v => v < 25 ? 'optimal' : v < 40 ? 'good' : 'high' },
-  ggt:             { label: 'GGT', unit: 'U/L', normal: '<45', optimal: '<25', evaluate: v => v < 25 ? 'optimal' : v < 45 ? 'good' : 'high' },
+  alt:             { label: 'ALT', unit: 'U/L', normal: '<40', optimal: '<20', evaluate: v => v < 20 ? 'optimal' : v < 40 ? 'good' : 'high', longevity: true },
+  ast:             { label: 'AST', unit: 'U/L', normal: '<40', optimal: '<20', evaluate: v => v < 20 ? 'optimal' : v < 40 ? 'good' : 'high' },
+  ggt:             { label: 'GGT', unit: 'U/L', normal: '<45', optimal: '<20', evaluate: v => v < 20 ? 'optimal' : v < 45 ? 'good' : 'high', longevity: true },
   // Kidney
   creatinine:      { label: 'ครีเอตินิน', unit: 'mg/dL', normal: '0.5-1.1', optimal: '0.6-1.0', evaluate: v => (v >= 0.6 && v <= 1.0) ? 'optimal' : (v >= 0.5 && v <= 1.1) ? 'good' : 'warning', femaleNote: 'ผู้หญิง 0.5-1.1' },
-  egfr:            { label: 'eGFR', unit: 'mL/min', normal: '>60', optimal: '>90', evaluate: v => v >= 90 ? 'optimal' : v >= 60 ? 'good' : v >= 30 ? 'warning' : 'high' },
+  egfr:            { label: 'eGFR', unit: 'mL/min', normal: '>60', optimal: '>90', evaluate: v => v >= 90 ? 'optimal' : v >= 60 ? 'good' : v >= 30 ? 'warning' : 'high', longevity: true },
   uricAcid:        { label: 'กรดยูริก', unit: 'mg/dL', normal: '<6.5', optimal: '<5.5', evaluate: v => v < 5.5 ? 'optimal' : v < 6.5 ? 'good' : 'high', femaleNote: 'ผู้หญิง <6.0' },
-  // Thyroid
+  // Heart
+  cacScore:        { label: 'CAC Score', unit: '', normal: '0', optimal: '0', evaluate: v => v === 0 ? 'optimal' : v < 100 ? 'warning' : 'high', longevity: true },
+  // Thyroid & Hormones
+  tsh:             { label: 'TSH', unit: 'µIU/mL', normal: '0.5-4.5', optimal: '1.0-2.5', evaluate: v => (v >= 1.0 && v <= 2.5) ? 'optimal' : (v >= 0.5 && v <= 4.5) ? 'good' : 'warning', longevity: true },
+  dheaS:           { label: 'DHEA-S', unit: 'µg/dL', normal: '60-380', optimal: '150-300', evaluate: v => (v >= 150 && v <= 300) ? 'optimal' : (v >= 60 && v <= 380) ? 'good' : 'warning', longevity: true, femaleNote: 'ผู้หญิง 37 ปี: 150-300' },
+  igf1:            { label: 'IGF-1', unit: 'ng/mL', normal: '75-200', optimal: '100-200', evaluate: v => (v >= 100 && v <= 200) ? 'optimal' : (v >= 75 && v <= 200) ? 'good' : 'warning', longevity: true },
+  cortisol:        { label: 'Cortisol (AM)', unit: 'µg/dL', normal: '6-23', optimal: '10-20', evaluate: v => (v >= 10 && v <= 20) ? 'optimal' : (v >= 6 && v <= 23) ? 'good' : 'warning' },
   // Vitamins
   vitaminD:        { label: 'Vitamin D', unit: 'ng/mL', normal: '>30', optimal: '50-80', evaluate: v => (v >= 50 && v <= 80) ? 'optimal' : v >= 30 ? 'good' : v >= 20 ? 'warning' : 'high', longevity: true },
-  vitaminB12:      { label: 'Vitamin B12', unit: 'pg/mL', normal: '200-900', optimal: '400-800', evaluate: v => (v >= 400 && v <= 800) ? 'optimal' : (v >= 200 && v <= 900) ? 'good' : 'warning' },
+  vitaminB12:      { label: 'Vitamin B12', unit: 'pg/mL', normal: '200-900', optimal: '500-900', evaluate: v => v >= 500 ? 'optimal' : (v >= 200 && v <= 900) ? 'good' : 'warning', longevity: true },
   vitaminB6:       { label: 'Vitamin B6', unit: 'ng/mL', normal: '>5', optimal: '20-100', evaluate: v => (v >= 20 && v <= 100) ? 'optimal' : v >= 5 ? 'good' : 'warning' },
   magnesium:       { label: 'Magnesium', unit: 'mg/dL', normal: '1.7-2.2', optimal: '2.0-2.2', evaluate: v => (v >= 2.0 && v <= 2.2) ? 'optimal' : (v >= 1.7 && v <= 2.2) ? 'good' : 'warning', longevity: true },
+  ferritin:        { label: 'Ferritin', unit: 'ng/mL', normal: '12-150', optimal: '40-100', evaluate: v => (v >= 40 && v <= 100) ? 'optimal' : (v >= 12 && v <= 150) ? 'good' : 'warning', longevity: true, femaleNote: 'ผู้หญิง 40-100' },
   // CBC
   hemoglobin:      { label: 'Hemoglobin', unit: 'g/dL', normal: '12-16', optimal: '13-15', evaluate: v => (v >= 13 && v <= 15) ? 'optimal' : (v >= 12 && v <= 16) ? 'good' : 'warning', femaleNote: 'ผู้หญิง 12-16' },
+  // Physical performance
+  gripStrength:    { label: 'Grip Strength', unit: 'kg', normal: '>25', optimal: '>27', evaluate: v => v >= 27 ? 'optimal' : v >= 25 ? 'good' : v >= 20 ? 'warning' : 'high', longevity: true, femaleNote: 'ผู้หญิง >27 kg' },
+  boneDensity:     { label: 'Bone Density (T-score)', unit: '', normal: '>-1', optimal: '>0', evaluate: v => v >= 0 ? 'optimal' : v >= -1 ? 'good' : v >= -2.5 ? 'warning' : 'high', longevity: true },
+  mocaScore:       { label: 'MoCA Score', unit: '/30', normal: '>25', optimal: '>26', evaluate: v => v >= 27 ? 'optimal' : v >= 25 ? 'good' : 'warning', longevity: true },
   // Female hormones
   estradiol:       { label: 'Estradiol (E2)', unit: 'pg/mL', normal: 'แล้วแต่รอบ', optimal: 'แล้วแต่รอบ', evaluate: v => v > 0 ? 'good' : 'warning', femaleNote: 'Follicular 30-400, Luteal 70-250' },
 }
@@ -81,7 +94,7 @@ const STATUS_COLOR = {
   high:    { text: 'text-red-600',   bg: 'bg-red-50',   label: 'ผิดปกติ ❗', badge: 'bg-red-100 text-red-700' },
 }
 
-type MainTab = 'summary' | 'records' | 'daily' | 'longevity'
+type MainTab = 'summary' | 'myplan' | 'longevity' | 'records' | 'daily'
 
 const LONGEVITY_KEYS = Object.entries(BIOMARKERS)
   .filter(([, def]) => def.longevity)
@@ -128,7 +141,7 @@ export default function Health() {
       />
 
       <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['summary', 'ภาพรวม'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม']] as [MainTab, string][]).map(([t, l]) => (
+        {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม']] as [MainTab, string][]).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
             {l}
@@ -138,8 +151,9 @@ export default function Health() {
 
       <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
-          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} checkups={checkups} profile={profile} />
+          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} checkups={checkups} profile={profile} allDaily={allDaily} />
         )}
+        {tab === 'myplan' && <MyPlanTab age={age} latestRecord={latestRecord} />}
         {tab === 'longevity' && (
           <LongevityTab latestRecord={latestRecord} age={age} />
         )}
@@ -163,7 +177,7 @@ export default function Health() {
   )
 }
 
-function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile }: any) {
+function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile, allDaily }: any) {
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
   const basicKeys = ['systolic', 'diastolic', 'heartRate', 'glucose', 'hba1c', 'ldl', 'hdl', 'triglycerides']
@@ -218,6 +232,38 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile 
         </div>
       )}
 
+      {/* Weight / BMI history */}
+      {(() => {
+        const withWeight = (allDaily ?? []).filter((d: any) => d.weightKg)
+        if (withWeight.length < 2) return null
+        return (
+          <div className="mx-4 mt-2 mb-1">
+            <div className="text-[12px] font-semibold text-gray-400 mb-1.5 px-1">ประวัติน้ำหนัก & BMI</div>
+            <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+              {withWeight.slice(0, 12).map((d: any, idx: number) => {
+                const bmiVal = profile?.heightCm ? d.weightKg / Math.pow(profile.heightCm / 100, 2) : null
+                const bmiStatus = bmiVal ? (bmiVal < 18.5 ? 'น้ำหนักน้อย' : bmiVal < 25 ? 'ปกติ' : bmiVal < 30 ? 'เกิน' : 'อ้วน') : null
+                const bmiColor = bmiVal ? (bmiVal < 18.5 ? 'text-amber-500' : bmiVal < 25 ? 'text-green-600' : bmiVal < 30 ? 'text-amber-500' : 'text-red-500') : ''
+                return (
+                  <div key={d.id} className={`flex items-center justify-between px-4 py-2.5 ${idx > 0 ? 'border-t border-gray-50' : ''} ${idx === 0 ? 'bg-indigo-50/40' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      {idx === 0 && <span className="text-[10px] font-bold text-indigo-500 bg-indigo-100 px-1.5 py-0.5 rounded-full">ล่าสุด</span>}
+                      <div className="text-[13px] text-gray-500">{d.date}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-[13px] font-bold text-gray-900">{d.weightKg} กก.</div>
+                      {bmiVal && (
+                        <div className={`text-[12px] font-semibold ${bmiColor}`}>BMI {bmiVal.toFixed(1)} <span className="text-[10px] font-normal">{bmiStatus}</span></div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Core metrics */}
       {latestRecord && (
         <>
@@ -267,6 +313,216 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile 
       )}
       <div className="h-4" />
     </>
+  )
+}
+
+// ── My Plan Tab ────────────────────────────────────────────────────────────
+
+const URGENT_ITEMS = [
+  { id: 'hepatitis_b', icon: '💉', label: 'ฉีดวัคซีน Hepatitis B', detail: 'Anti-HBs <2 = ไม่มีภูมิ! ทำลายตับถาวร', by: 'ภายใน 1 เดือน' },
+  { id: 'mammogram', icon: '🎗', label: 'Mammogram + Breast Ultrasound', detail: 'แม่เป็นมะเร็งเต้านม → เริ่มตรวจตั้งแต่อายุ 35', by: 'ภายใน 1 เดือน' },
+  { id: 'brca', icon: '🧬', label: 'BRCA1/BRCA2 Gene Test', detail: 'แม่มะเร็งเต้านม → โอกาส positive ~50% ราคา 8,000–15,000 บาท', by: 'ปีนี้' },
+  { id: 'vitd_recheck', icon: '☀️', label: 'ตรวจ Vitamin D ซ้ำ', detail: 'ค่าล่าสุด 17.82 ng/mL (เป้า 50+ ng/mL) กิน D3 5,000 IU ไป 3 เดือนแล้ว', by: '3 เดือนจากที่เริ่มกิน' },
+  { id: 'apob_panel', icon: '🫀', label: 'ตรวจ ApoB, Lp(a), Homocysteine, TSH, DHEA-S', detail: 'ยังไม่เคยตรวจ — สำคัญมากสำหรับ longevity baseline', by: 'ภายใน 3 เดือน' },
+  { id: 'dexa_vo2', icon: '💪', label: 'DEXA Body Composition + VO2 Max test', detail: 'Baseline สำคัญ — รู้ muscle mass จริงเพื่อติดตาม longevity', by: 'ภายใน 6 เดือน' },
+]
+
+const CURRENT_ISSUES = [
+  { key: 'hba1c',   label: 'HbA1c', current: '5.74%', optimal: '<5.3%', action: 'เร่งลด insulin resistance เป็นลำดับแรก', color: 'text-red-600', bg: 'bg-red-50' },
+  { key: 'insulin', label: 'Fasting Insulin', current: '17.3 µIU/mL', optimal: '<5', action: 'IF + ลดน้ำตาล + L-Carnitine + Berberine', color: 'text-red-600', bg: 'bg-red-50' },
+  { key: 'homaIr',  label: 'HOMA-IR', current: '~3.6', optimal: '<1.5', action: 'ต้องแก้ด่วน — เสี่ยงเบาหวาน Type 2', color: 'text-red-600', bg: 'bg-red-50' },
+  { key: 'hsCrp',  label: 'hs-CRP', current: '3.13 mg/L', optimal: '<1.0', action: 'ลดน้ำตาล + Omega-3 + Curcumin + ออกกำลังกาย', color: 'text-red-600', bg: 'bg-red-50' },
+  { key: 'bp',      label: 'ความดันโลหิต', current: '127/87', optimal: '<120/75', action: 'ลดเกลือ + Magnesium + ออกกำลังกาย + ลด stress', color: 'text-orange-600', bg: 'bg-orange-50' },
+  { key: 'ggt',     label: 'GGT', current: '57 U/L', optimal: '<20 U/L', action: 'ลด alcohol + ลดน้ำตาล + Curcumin', color: 'text-red-600', bg: 'bg-red-50' },
+  { key: 'vitd',    label: 'Vitamin D', current: '17.82 ng/mL', optimal: '50–80 ng/mL', action: 'กิน D3 5,000 IU/วัน ตรวจซ้ำ 3 เดือน', color: 'text-orange-600', bg: 'bg-orange-50' },
+]
+
+const AGE_MILESTONES = [
+  {
+    age: 40, year: 2029, label: 'อายุ 40', color: 'border-orange-400 bg-orange-50',
+    items: [
+      'DEXA Bone Density ครั้งแรก',
+      'Breast MRI (ถ้า density สูง)',
+      'Carotid IMT (ความหนาหลอดเลือด)',
+      'ApoE Genotype (ความเสี่ยง Alzheimer\'s)',
+      'TSH (ไทรอยด์) ทุกปี',
+      'HOMA-IR ทุกปี',
+    ],
+  },
+  {
+    age: 45, year: 2034, label: 'อายุ 45', color: 'border-yellow-400 bg-yellow-50',
+    items: [
+      'Colonoscopy ครั้งแรก (family history)',
+      'เพิ่มความถี่ Mammogram ถ้าจำเป็น',
+      'ทบทวน hormone panel (perimenopause)',
+      'Carotid IMT ซ้ำ',
+      'AMH + FSH (Ovarian Reserve)',
+    ],
+  },
+  {
+    age: 50, year: 2039, label: 'อายุ 50+', color: 'border-green-400 bg-green-50',
+    items: [
+      'Colonoscopy ทุก 5–10 ปี',
+      'DEXA Bone Density ทุก 2 ปี',
+      'Mammogram + MRI เต้านม ทุกปี',
+      'Cardiac CT / Echo ทุก 3–5 ปี',
+      'ฮอร์โมนวัยทอง (Estrogen, FSH, LH)',
+      'ตรวจตา (Glaucoma, ต้อกระจก) ทุกปี',
+      'ตรวจการได้ยิน ทุก 2–3 ปี',
+    ],
+  },
+]
+
+const CANCER_SCREENING = [
+  { label: 'Mammogram + Breast Ultrasound', freq: 'ทุกปี', since: 'เริ่มอายุ 35', icon: '🎗', urgent: true },
+  { label: 'Breast MRI (High Risk)', freq: 'ทุก 1–2 ปี ถ้า density สูง', since: 'ปรึกษา breast surgeon', icon: '🔬', urgent: false },
+  { label: 'BRCA1/BRCA2 Gene Test', freq: 'ครั้งเดียวในชีวิต', since: 'ทำให้เร็วที่สุด', icon: '🧬', urgent: true },
+  { label: 'Pap Smear + HPV DNA', freq: 'ทุก 3–5 ปี', since: '', icon: '🩺', urgent: false },
+  { label: 'Colonoscopy', freq: 'ครั้งแรกอายุ 45 (ปี 2034)', since: 'มี family history → เริ่มเร็ว', icon: '🔭', urgent: false },
+  { label: 'Full Body Skin Check', freq: 'ทุกปี', since: 'เริ่มอายุ 35', icon: '🌿', urgent: false },
+]
+
+const GOOD_RESULTS = [
+  'หัวใจ: EF 72%, CAC=0, Stress Test ผ่าน, ABI ปกติ',
+  'ไทรอยด์: TSH/FT3/FT4 ปกติตลอด',
+  'HbA1c: 5.74% (ยังปกติ)',
+  'ฮอร์โมนเพศหญิง: ปกติทั้งหมด',
+  'Allergy IgE: ไม่มีการแพ้ที่มีนัยสำคัญ',
+  'Vitamin B1, B2, B6, B12, Ferritin: ปกติ',
+  'Cholesterol/LDL: ดีขึ้นมากจากปี 2565',
+  'Chest X-Ray: ปกติ, Carotid: ไม่มี plaque',
+]
+
+function MyPlanTab(_props: { age?: number; latestRecord?: HealthRecord | null }) {
+  const [done, setDone] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem('health_plan_done') ?? '{}') } catch { return {} }
+  })
+
+  function toggle(id: string) {
+    setDone(prev => {
+      const next = { ...prev, [id]: !prev[id] }
+      localStorage.setItem('health_plan_done', JSON.stringify(next))
+      return next
+    })
+  }
+
+  const urgentRemaining = URGENT_ITEMS.filter(i => !done[i.id]).length
+
+  return (
+    <div className="pb-8">
+      {/* High-risk banner */}
+      <div className="bg-red-600 px-4 py-3 text-white">
+        <div className="text-[13px] font-bold">⚠️ High-Risk Profile</div>
+        <div className="text-[11px] opacity-90 mt-0.5">พ่อเป็นโรคหัวใจ · แม่เป็นเบาหวาน มะเร็งเต้านม ความดัน → ต้องตรวจเร็วและบ่อยกว่าคนทั่วไป</div>
+      </div>
+
+      {/* Urgent section */}
+      <div className="px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[15px] font-bold text-gray-900">🔴 เร่งด่วน — ตรวจทันที</div>
+          {urgentRemaining > 0
+            ? <span className="text-[11px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">เหลือ {urgentRemaining} รายการ</span>
+            : <span className="text-[11px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">✓ ครบแล้ว</span>
+          }
+        </div>
+        <div className="flex flex-col gap-2">
+          {URGENT_ITEMS.map(item => (
+            <button key={item.id} onClick={() => toggle(item.id)}
+              className={`flex items-start gap-3 bg-white rounded-2xl px-4 py-3 shadow-sm text-left active:scale-[0.98] transition-all ${done[item.id] ? 'opacity-50' : ''}`}>
+              <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${done[item.id] ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
+                {done[item.id] && <span className="text-white text-[10px]">✓</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-[13px] font-semibold ${done[item.id] ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                  {item.icon} {item.label}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">{item.detail}</div>
+                <div className="text-[10px] font-semibold text-red-500 mt-1">{item.by}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Current issues */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="text-[15px] font-bold text-gray-900 mb-2">⚠️ ค่าที่ต้องปรับปรุง</div>
+        <div className="flex flex-col gap-2">
+          {CURRENT_ISSUES.map(issue => (
+            <div key={issue.key} className={`rounded-2xl px-4 py-3 ${issue.bg}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-bold text-gray-900">{issue.label}</span>
+                <div className="text-right">
+                  <span className={`text-[14px] font-bold ${issue.color}`}>{issue.current}</span>
+                  <div className="text-[10px] text-gray-500">เป้า {issue.optimal}</div>
+                </div>
+              </div>
+              <div className="text-[11px] text-gray-600 mt-1">→ {issue.action}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Good results */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="text-[15px] font-bold text-gray-900 mb-2">✅ ผลดี — รักษาระดับนี้ไว้</div>
+        <div className="bg-green-50 rounded-2xl px-4 py-3">
+          <div className="flex flex-col gap-1.5">
+            {GOOD_RESULTS.map(r => (
+              <div key={r} className="flex items-start gap-2 text-[12px] text-green-800">
+                <span className="text-green-500 flex-shrink-0 mt-0.5">✓</span>
+                <span>{r}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Age milestones */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="text-[15px] font-bold text-gray-900 mb-2">📅 แผนตามช่วงอายุ</div>
+        <div className="flex flex-col gap-3">
+          {AGE_MILESTONES.map(m => (
+            <div key={m.age} className={`rounded-2xl border-l-4 px-4 py-3 ${m.color}`}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[14px] font-bold text-gray-900">{m.label}</span>
+                <span className="text-[11px] font-semibold text-gray-500">ปี {m.year}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {m.items.map(it => (
+                  <div key={it} className="flex items-start gap-2 text-[12px] text-gray-700">
+                    <span className="text-gray-400 flex-shrink-0">•</span>
+                    <span>{it}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Cancer screening */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="text-[15px] font-bold text-gray-900 mb-2">🎗 Cancer Screening (High Risk)</div>
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+          {CANCER_SCREENING.map((s, idx) => (
+            <div key={s.label} className={`px-4 py-3 ${idx < CANCER_SCREENING.length - 1 ? 'border-b border-gray-50' : ''}`}>
+              <div className="flex items-start gap-2">
+                <span className="text-base flex-shrink-0">{s.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-semibold text-gray-900">{s.label}</span>
+                    {s.urgent && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 rounded-full">เร่งด่วน</span>}
+                  </div>
+                  <div className="text-[11px] text-indigo-600 font-semibold mt-0.5">{s.freq}</div>
+                  {s.since && <div className="text-[11px] text-gray-400">{s.since}</div>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -453,9 +709,12 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
     if (editItem) {
       const fields = ['systolic','diastolic','heartRate','glucose','hba1c','fastingInsulin',
         'ldl','hdl','triglycerides','totalCholesterol','apoB','lpA','hsCrp',
-        'alt','ast','ggt','creatinine','egfr','uricAcid','tsh',
-        'vitaminD','vitaminB12','vitaminB6','magnesium','hemoglobin',
-        'bodyFatPct','muscleMassKg','waistCm',
+        'homocysteine','omega3Index','cacScore',
+        'alt','ast','ggt','creatinine','egfr','uricAcid',
+        'tsh','dheaS','igf1','cortisol',
+        'vitaminD','vitaminB12','vitaminB6','magnesium','ferritin','hemoglobin',
+        'bodyFatPct','muscleMassKg','waistCm','boneDensityTScore',
+        'gripStrength','mocaScore',
         'estradiol','progesterone','fsh','lh','testosterone']
       fields.forEach(f => {
         const v = (editItem as any)[f]
@@ -480,12 +739,17 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
       homaIr: (num('glucose') && num('fastingInsulin')) ? parseFloat(((num('glucose')! * num('fastingInsulin')!) / 405).toFixed(2)) : undefined,
       ldl: num('ldl'), hdl: num('hdl'), triglycerides: num('triglycerides'), totalCholesterol: num('totalCholesterol'),
       apoB: num('apoB'), lpA: num('lpA'),
-      hsCrp: num('hsCrp'), alt: num('alt'), ast: num('ast'), ggt: num('ggt'),
-      creatinine: num('creatinine'), egfr: num('egfr'), uricAcid: num('uricAcid'), tsh: num('tsh'),
-      vitaminD: num('vitaminD'), vitaminB12: num('vitaminB12'), vitaminB6: num('vitaminB6'), magnesium: num('magnesium'),
+      hsCrp: num('hsCrp'), homocysteine: num('homocysteine'), omega3Index: num('omega3Index'), cacScore: num('cacScore'),
+      alt: num('alt'), ast: num('ast'), ggt: num('ggt'),
+      creatinine: num('creatinine'), egfr: num('egfr'), uricAcid: num('uricAcid'),
+      tsh: num('tsh'), dheaS: num('dheaS'), igf1: num('igf1'), cortisol: num('cortisol'),
+      vitaminD: num('vitaminD'), vitaminB12: num('vitaminB12'), vitaminB6: num('vitaminB6'),
+      magnesium: num('magnesium'), ferritin: num('ferritin'),
       hemoglobin: num('hemoglobin'),
       bodyFatPct: num('bodyFatPct'), muscleMassKg: num('muscleMassKg'), waistCm: num('waistCm'),
+      boneDensityTScore: num('boneDensityTScore'),
       weightKg: num('weightKg'),
+      gripStrength: num('gripStrength'), mocaScore: num('mocaScore'),
       estradiol: num('estradiol'), progesterone: num('progesterone'), fsh: num('fsh'), lh: num('lh'), testosterone: num('testosterone'),
     }
     if (editItem?.id) await db.healthRecords.update(editItem.id, data)
@@ -538,29 +802,46 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
         )}
         {section === 'advanced' && (
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ไขมัน + เบาหวาน</div>
             <F label="ApoB (mg/dL)" k="apoB" ph="80" />
             <F label="Lp(a) (mg/dL)" k="lpA" ph="15" />
-            <F label="hs-CRP (mg/L)" k="hsCrp" ph="0.5" />
             <F label="Fasting Insulin" k="fastingInsulin" ph="5" />
-            <F label="ALT (U/L)" k="alt" ph="25" />
-            <F label="AST (U/L)" k="ast" ph="25" />
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">การอักเสบ</div>
+            <F label="hs-CRP (mg/L)" k="hsCrp" ph="0.5" />
+            <F label="Homocysteine (µmol/L)" k="homocysteine" ph="8" />
+            <F label="Omega-3 Index (%)" k="omega3Index" ph="8" />
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ตับ + ไต</div>
+            <F label="ALT (U/L)" k="alt" ph="20" />
+            <F label="AST (U/L)" k="ast" ph="20" />
             <F label="GGT (U/L)" k="ggt" ph="20" />
             <F label="eGFR" k="egfr" ph="90" />
             <F label="กรดยูริก" k="uricAcid" ph="5" />
-            <F label="TSH (mIU/L)" k="tsh" ph="1.5" />
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ไทรอยด์ + ฮอร์โมน Longevity</div>
+            <F label="TSH (µIU/mL)" k="tsh" ph="1.5" />
+            <F label="DHEA-S (µg/dL)" k="dheaS" ph="200" />
+            <F label="IGF-1 (ng/mL)" k="igf1" ph="150" />
+            <F label="Cortisol AM (µg/dL)" k="cortisol" ph="15" />
+            <F label="CAC Score" k="cacScore" ph="0" />
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">วิตามิน + แร่ธาตุ</div>
             <F label="Vitamin D (ng/mL)" k="vitaminD" ph="60" />
             <F label="Vitamin B12 (pg/mL)" k="vitaminB12" ph="500" />
             <F label="Vitamin B6 (ng/mL)" k="vitaminB6" ph="30" />
             <F label="Magnesium (mg/dL)" k="magnesium" ph="2.1" />
+            <F label="Ferritin (ng/mL)" k="ferritin" ph="60" />
             <F label="Hemoglobin (g/dL)" k="hemoglobin" ph="13.5" />
           </div>
         )}
         {section === 'body' && (
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">Body Composition</div>
             <F label="น้ำหนัก (กก.)" k="weightKg" ph="60" />
             <F label="ไขมันร่างกาย (%)" k="bodyFatPct" ph="22" />
             <F label="มวลกล้ามเนื้อ (กก.)" k="muscleMassKg" ph="40" />
             <F label="รอบเอว (ซม.)" k="waistCm" ph="70" />
+            <F label="Bone Density (T-score)" k="boneDensityTScore" ph="0.5" />
+            <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">สมรรถภาพร่างกาย</div>
+            <F label="Grip Strength (กก.)" k="gripStrength" ph="28" />
+            <F label="MoCA Score (/30)" k="mocaScore" ph="27" />
           </div>
         )}
         {section === 'hormones' && (

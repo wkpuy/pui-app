@@ -15,21 +15,20 @@ interface AmortRow {
   balance: number
 }
 
-function calcAmortization(loanAmount: number, annualRate: number, termYears: number, extraMonthly: number): AmortRow[] {
+function calcAmortization(loanAmount: number, annualRate: number, termMonths: number, getExtra: (month: number) => number): AmortRow[] {
   const monthlyRate = annualRate / 100 / 12
-  const totalMonths = termYears * 12
   const basePayment = monthlyRate > 0
-    ? loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / (Math.pow(1 + monthlyRate, totalMonths) - 1)
-    : loanAmount / totalMonths
-  const payment = basePayment + extraMonthly
+    ? loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, termMonths)) / (Math.pow(1 + monthlyRate, termMonths) - 1)
+    : loanAmount / termMonths
 
   const rows: AmortRow[] = []
   let balance = loanAmount
   let month = 0
-  while (balance > 0 && month < totalMonths * 2) {
+  while (balance > 0 && month < termMonths * 2) {
     month++
+    const extra = getExtra(month)
     const interest = balance * monthlyRate
-    const principal = Math.min(payment - interest, balance)
+    const principal = Math.min(basePayment - interest + extra, balance)
     balance = balance - principal
     rows.push({
       month,
@@ -49,18 +48,42 @@ export default function Condo() {
   const [showForm, setShowForm] = useState(false)
   const [showTable, setShowTable] = useState(false)
   const [extraSim, setExtraSim] = useState(0)
+  const [editingMonth, setEditingMonth] = useState<number | null>(null)
+  const [editExtraVal, setEditExtraVal] = useState('')
+  const [monthlyExtras, setMonthlyExtras] = useState<Record<number, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('condo_monthly_extras') ?? '{}') } catch { return {} }
+  })
 
   const condo = useLiveQuery(() => db.condoMortgage.toArray().then(r => r[0]))
 
   const rows = useMemo(() => {
     if (!condo) return []
-    return calcAmortization(condo.loanAmount, condo.interestRate, condo.loanTermYears, condo.monthlyExtra)
-  }, [condo])
+    return calcAmortization(
+      condo.loanAmount, condo.interestRate, condo.loanTermYears * 12,
+      (m) => monthlyExtras[m] ?? condo.monthlyExtra
+    )
+  }, [condo, monthlyExtras])
 
   const rowsSim = useMemo(() => {
     if (!condo) return []
-    return calcAmortization(condo.loanAmount, condo.interestRate, condo.loanTermYears, condo.monthlyExtra + extraSim)
-  }, [condo, extraSim])
+    return calcAmortization(
+      condo.loanAmount, condo.interestRate, condo.loanTermYears * 12,
+      (m) => (monthlyExtras[m] ?? condo.monthlyExtra) + extraSim
+    )
+  }, [condo, extraSim, monthlyExtras])
+
+  function startEditExtra(month: number) {
+    setEditingMonth(month)
+    setEditExtraVal(String(monthlyExtras[month] ?? condo?.monthlyExtra ?? 0))
+  }
+
+  function confirmEditExtra(month: number) {
+    const val = parseFloat(editExtraVal) || 0
+    const next = { ...monthlyExtras, [month]: val }
+    localStorage.setItem('condo_monthly_extras', JSON.stringify(next))
+    setMonthlyExtras(next)
+    setEditingMonth(null)
+  }
 
   const totalInterest = rows.reduce((s, r) => s + r.interest, 0)
   const totalInterestSim = rowsSim.reduce((s, r) => s + r.interest, 0)
@@ -173,23 +196,48 @@ export default function Condo() {
 
               {showTable && (
                 <div className="bg-white rounded-2xl overflow-hidden shadow-sm mt-2">
-                  <div className="grid grid-cols-4 gap-1 px-4 py-2.5 border-b border-gray-100 bg-gray-50 sticky top-0">
-                    <div className="text-[11px] font-bold text-gray-500">งวด</div>
-                    <div className="text-[11px] font-bold text-gray-500 text-right">เงินต้น</div>
-                    <div className="text-[11px] font-bold text-gray-500 text-right">ดอกเบี้ย</div>
-                    <div className="text-[11px] font-bold text-gray-500 text-right">คงเหลือ</div>
+                  <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2.5 border-b border-gray-100 bg-gray-50 sticky top-0">
+                    <div className="text-[10px] font-bold text-gray-500">งวด</div>
+                    <div className="text-[10px] font-bold text-gray-500 text-right">เงินต้น</div>
+                    <div className="text-[10px] font-bold text-gray-500 text-right">ดอกเบี้ย</div>
+                    <div className="text-[10px] font-bold text-indigo-500 text-right">จ่ายเพิ่ม ✏️</div>
+                    <div className="text-[10px] font-bold text-gray-500 text-right">คงเหลือ</div>
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {rows.map((row, idx) => (
-                      <div key={row.month}
-                        className={`grid grid-cols-4 gap-1 px-4 py-2 ${idx < rows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
-                      >
-                        <div className="text-[12px] text-gray-600">{row.month}</div>
-                        <div className="text-[12px] text-right text-green-600">{formatCurrency(row.principal, 0)}</div>
-                        <div className="text-[12px] text-right text-red-400">{formatCurrency(row.interest, 0)}</div>
-                        <div className="text-[12px] text-right text-gray-700">{formatCurrency(row.balance, 0)}</div>
-                      </div>
-                    ))}
+                  <div className="max-h-96 overflow-y-auto">
+                    {rows.map((row, idx) => {
+                      const extraForRow = monthlyExtras[row.month] ?? condo?.monthlyExtra ?? 0
+                      const isEditing = editingMonth === row.month
+                      return (
+                        <div key={row.month}
+                          className={`grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2 ${idx < rows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
+                        >
+                          <div className="text-[11px] text-gray-600 font-medium">{row.month}</div>
+                          <div className="text-[11px] text-right text-green-600">{formatCurrency(row.principal, 0)}</div>
+                          <div className="text-[11px] text-right text-red-400">{formatCurrency(row.interest, 0)}</div>
+                          <div className="text-right">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                value={editExtraVal}
+                                autoFocus
+                                onChange={e => setEditExtraVal(e.target.value)}
+                                onBlur={() => confirmEditExtra(row.month)}
+                                onKeyDown={e => { if (e.key === 'Enter') confirmEditExtra(row.month); if (e.key === 'Escape') setEditingMonth(null) }}
+                                className="w-full text-[11px] text-right border border-indigo-300 rounded px-1 py-0.5 bg-white"
+                              />
+                            ) : (
+                              <button
+                                onClick={() => startEditExtra(row.month)}
+                                className={`text-[11px] text-right w-full ${extraForRow > 0 ? 'text-indigo-600 font-semibold' : 'text-gray-300'}`}
+                              >
+                                {extraForRow > 0 ? formatCurrency(extraForRow, 0) : '—'}
+                              </button>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-right text-gray-700">{formatCurrency(row.balance, 0)}</div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -212,7 +260,7 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
     downPayment: condo?.downPayment?.toString() ?? '',
     loanAmount: condo?.loanAmount?.toString() ?? '',
     interestRate: condo?.interestRate?.toString() ?? '4',
-    loanTermYears: condo?.loanTermYears?.toString() ?? '30',
+    loanTermMonths: condo?.loanTermYears ? String(condo.loanTermYears * 12) : '360',
     startDate: condo?.startDate ?? new Date().toISOString().slice(0, 7) + '-01',
     monthlyExtra: condo?.monthlyExtra?.toString() ?? '0',
     notes: condo?.notes ?? '',
@@ -230,6 +278,7 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
 
   async function save() {
     if (!form.propertyName || !form.loanAmount) return
+    const termMonths = parseInt(form.loanTermMonths) || 360
     const data = {
       propertyName: form.propertyName,
       bankName: form.bankName,
@@ -237,7 +286,7 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
       downPayment: parseFloat(form.downPayment) || 0,
       loanAmount: parseFloat(form.loanAmount),
       interestRate: parseFloat(form.interestRate),
-      loanTermYears: parseInt(form.loanTermYears),
+      loanTermYears: termMonths / 12,
       startDate: form.startDate,
       monthlyExtra: parseFloat(form.monthlyExtra) || 0,
       notes: form.notes || undefined,
@@ -285,10 +334,13 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
           </div>
           <div>
-            <div className="text-[11px] text-gray-500 mb-1">ระยะเวลา (ปี)</div>
-            <input type="number" value={form.loanTermYears}
-              onChange={e => setForm(v => ({ ...v, loanTermYears: e.target.value }))}
+            <div className="text-[11px] text-gray-500 mb-1">จำนวนงวด (เดือน)</div>
+            <input type="number" value={form.loanTermMonths}
+              onChange={e => setForm(v => ({ ...v, loanTermMonths: e.target.value }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            {form.loanTermMonths && (
+              <div className="text-[10px] text-gray-400 mt-0.5 ml-1">= {(parseInt(form.loanTermMonths) / 12).toFixed(1)} ปี</div>
+            )}
           </div>
         </div>
         <div>

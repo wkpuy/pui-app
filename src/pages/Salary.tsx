@@ -76,6 +76,7 @@ export default function Salary() {
               <div className="bg-white/15 rounded-xl p-2 text-center">
                 <div className="text-[11px] opacity-75">โบนัส</div>
                 <div className="text-[13px] font-bold">{formatCurrency(latestRecord.bonus, 0)}</div>
+                <div className="text-[10px] opacity-75">{(latestRecord.bonus / latestRecord.baseSalary).toFixed(2)} เดือน</div>
               </div>
               <div className="bg-white/15 rounded-xl p-2 text-center">
                 <div className="text-[11px] opacity-75">กองทุนสำรอง/ปี</div>
@@ -90,28 +91,41 @@ export default function Salary() {
           <>
             <SectionLabel>ประวัติเงินเดือน</SectionLabel>
             <div className="mx-4 bg-white rounded-2xl overflow-hidden shadow-sm">
-              {records.map((r, idx) => (
-                <div key={r.id}>
-                  {idx > 0 && <div className="h-px bg-gray-50 mx-4" />}
-                  <div className="flex items-center justify-between px-4 py-3.5">
-                    <div>
-                      <div className="text-[15px] font-semibold text-gray-900">ปี {r.year}</div>
-                      <div className="text-[12px] text-gray-400">โบนัส {formatCurrency(r.bonus)} · PVD {r.pvdEmployeeRate + r.pvdEmployerRate}%</div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="text-[15px] font-bold text-indigo-600">{formatCurrency(r.baseSalary)}</div>
-                        <div className="text-[11px] text-gray-400">/เดือน</div>
+              {records.map((r, idx) => {
+                const prevRecord = records[idx + 1]
+                const increaseAmt = prevRecord ? r.baseSalary - prevRecord.baseSalary : null
+                const increasePct = prevRecord && prevRecord.baseSalary > 0 ? (increaseAmt! / prevRecord.baseSalary) * 100 : null
+                const bonusMonths = r.baseSalary > 0 ? r.bonus / r.baseSalary : 0
+                return (
+                  <div key={r.id}>
+                    {idx > 0 && <div className="h-px bg-gray-50 mx-4" />}
+                    <div className="flex items-center justify-between px-4 py-3.5">
+                      <div>
+                        <div className="text-[15px] font-semibold text-gray-900">ปี {r.year}</div>
+                        <div className="text-[12px] text-gray-400">
+                          โบนัส {formatCurrency(r.bonus)} ({bonusMonths.toFixed(2)} เดือน) · PVD {r.pvdEmployeeRate + r.pvdEmployerRate}%
+                        </div>
+                        {increasePct !== null && (
+                          <div className={`text-[11px] font-semibold mt-0.5 ${increaseAmt! > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {increaseAmt! > 0 ? '▲' : '▼'} {formatCurrency(Math.abs(increaseAmt!))} ({Math.abs(increasePct!).toFixed(1)}%)
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => openEdit(r)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-[13px] active:scale-95">✏️</button>
-                        <button onClick={() => { if (confirm('ลบรายการนี้?')) db.salaryRecords.delete(r.id!) }}
-                          className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-[13px] active:scale-95">🗑️</button>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="text-[15px] font-bold text-indigo-600">{formatCurrency(r.baseSalary)}</div>
+                          <div className="text-[11px] text-gray-400">/เดือน</div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => openEdit(r)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-[13px] active:scale-95">✏️</button>
+                          <button onClick={() => { if (confirm('ลบรายการนี้?')) db.salaryRecords.delete(r.id!) }}
+                            className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-[13px] active:scale-95">🗑️</button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </>
         )}
@@ -182,15 +196,16 @@ export default function Salary() {
         <div className="h-4" />
       </div>
 
-      {showForm && <SalaryForm editItem={editItem} onClose={() => setShowForm(false)} />}
+      {showForm && <SalaryForm editItem={editItem} prevSalary={editItem ? undefined : latestRecord?.baseSalary} onClose={() => setShowForm(false)} />}
     </div>
   )
 }
 
-function SalaryForm({ editItem, onClose }: { editItem: SalaryRecord | null; onClose: () => void }) {
+function SalaryForm({ editItem, prevSalary, onClose }: { editItem: SalaryRecord | null; prevSalary?: number; onClose: () => void }) {
   const [form, setForm] = useState({
     year: editItem?.year?.toString() ?? CURRENT_YEAR.toString(),
     baseSalary: editItem?.baseSalary?.toString() ?? '',
+    salaryIncreaseAmt: '',
     bonus: editItem?.bonus?.toString() ?? '0',
     pvdEmployeeRate: editItem?.pvdEmployeeRate?.toString() ?? '5',
     pvdEmployerRate: editItem?.pvdEmployerRate?.toString() ?? '5',
@@ -223,18 +238,53 @@ function SalaryForm({ editItem, onClose }: { editItem: SalaryRecord | null; onCl
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
 
-        {[
-          ['ปี', 'year', 'number'],
-          ['เงินเดือนฐาน (บาท/เดือน)', 'baseSalary', 'number'],
-          ['โบนัสประจำปี (บาท)', 'bonus', 'number'],
-        ].map(([label, key, type]) => (
-          <div key={key}>
-            <div className="text-[12px] font-semibold text-gray-500 mb-1">{label}</div>
-            <input type={type} value={(form as any)[key]}
-              onChange={e => setForm(v => ({ ...v, [key]: e.target.value }))}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ปี</div>
+          <input type="number" value={form.year}
+            onChange={e => setForm(v => ({ ...v, year: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+        </div>
+
+        {/* Salary increase input (only when adding new with prev salary) */}
+        {!editItem && prevSalary ? (
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">เงินเดือนที่ขึ้น (บาท)</div>
+            <input type="number" placeholder={`เงินเดือนปัจจุบัน ${formatCurrency(prevSalary)}`} value={form.salaryIncreaseAmt}
+              onChange={e => {
+                const inc = parseFloat(e.target.value) || 0
+                setForm(v => ({
+                  ...v,
+                  salaryIncreaseAmt: e.target.value,
+                  baseSalary: inc > 0 ? String(prevSalary + inc) : v.baseSalary,
+                }))
+              }}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            {form.salaryIncreaseAmt && parseFloat(form.salaryIncreaseAmt) > 0 && (
+              <div className="text-[11px] text-green-600 font-semibold mt-1 ml-1">
+                = {((parseFloat(form.salaryIncreaseAmt) / prevSalary) * 100).toFixed(2)}% จาก {formatCurrency(prevSalary)}
+              </div>
+            )}
           </div>
-        ))}
+        ) : null}
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">เงินเดือนฐาน (บาท/เดือน)</div>
+          <input type="number" value={form.baseSalary}
+            onChange={e => setForm(v => ({ ...v, baseSalary: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">โบนัสประจำปี (บาท)</div>
+          <input type="number" value={form.bonus}
+            onChange={e => setForm(v => ({ ...v, bonus: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+          {form.bonus && form.baseSalary && parseFloat(form.baseSalary) > 0 && (
+            <div className="text-[11px] text-indigo-600 font-semibold mt-1 ml-1">
+              = {(parseFloat(form.bonus) / parseFloat(form.baseSalary)).toFixed(2)} เดือน
+            </div>
+          )}
+        </div>
 
         <div className="text-[12px] font-semibold text-gray-500 mb-0">กองทุนสำรองเลี้ยงชีพ (PVD)</div>
         <div className="grid grid-cols-2 gap-2">

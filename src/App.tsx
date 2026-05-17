@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import BottomNav from './components/BottomNav'
+import { useAutoSync } from './hooks/useAutoSync'
 import Dashboard from './pages/Dashboard'
 import Investment from './pages/Investment'
 import Health from './pages/Health'
@@ -28,6 +29,7 @@ export default function App() {
 }
 
 function MainLayout() {
+  useAutoSync()
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 flex flex-col overflow-hidden">

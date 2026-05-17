@@ -55,6 +55,23 @@ class AppDB extends Dexie {
       condoMortgage: '++id',
       installments: '++id, startDate',
     })
+    this.version(3).stores({
+      profile: '++id',
+      investments: '++id, type, ticker',
+      dividends: '++id, investmentId, date',
+      healthRecords: '++id, date',
+      healthDaily: '++id, date',
+      retirementPlan: '++id',
+      financeRecords: '++id, date, type, source, rawRef',
+      emergencyFund: '++id',
+      chatMessages: '++id, timestamp',
+      googleTokens: '++id',
+      syncLog: '++id, source',
+      settings: '++id',
+      salaryRecords: '++id, year',
+      condoMortgage: '++id',
+      installments: '++id, startDate',
+    })
   }
 }
 

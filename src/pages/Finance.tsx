@@ -3,9 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
-import { Card, CardTitle, SectionLabel, ProgressBar } from '../components/Card'
+import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components/Card'
 import { formatCurrency } from '../utils/calculations'
 import type { FinanceRecord, Installment } from '../db/types'
+import { listBillFiles } from '../api/google'
+import type { BillFile } from '../api/google'
+import type { CreditCardTransaction } from '../api/pdfParser'
 
 const CATEGORIES_EXPENSE = [
   'อาหาร', 'เดินทาง', 'ช้อปปิ้ง', 'สุขภาพ', 'ท่องเที่ยว',
@@ -72,6 +75,7 @@ export default function Finance() {
           <OverviewTab
             income={income} expense={expense} net={net}
             expenseByCategory={expenseByCategory}
+            month={month}
           />
         )}
         {tab === 'records' && (
@@ -95,11 +99,155 @@ export default function Finance() {
   )
 }
 
-function OverviewTab({ income, expense, net, expenseByCategory }: {
-  income: number; expense: number; net: number; expenseByCategory: Record<string, number>
+interface ImportState {
+  file: BillFile
+  txns: Array<CreditCardTransaction & { category: string }>
+  selected: boolean[]
+}
+
+function detectCat(description: string): string {
+  const d = description.toUpperCase()
+  if (/MRT|BTS|BEM|GRAB|TAXI|BOLT|TRANSPORT/.test(d)) return 'เดินทาง'
+  if (/HOSPITAL|CLINIC|PHARMACY|MEDICAL|SIRIRAJ|BANGPO|SAMITIVEJ|RAJDHEV/.test(d)) return 'สุขภาพ'
+  if (/APPLE|NETFLIX|SPOTIFY|ANTHROPIC|GOOGLE|YOUTUBE|WINDSURF|LUMEN|COWAY|2C2P.*SUBSCRIPTION/.test(d)) return 'Subscription'
+  if (/SHOPEE|LAZADA|CENTRAL|LOTUS|TOPS|UNIQLO|AMAZON/.test(d)) return 'ช้อปปิ้ง'
+  if (/FOOD|MEKIKI|SUKISHI|AFTER YOU|CAFE|COFFEE|KFC|PIZZA|BQ|PZD/.test(d)) return 'อาหาร'
+  if (/INSURANCE|ASSURANCE/.test(d)) return 'ประกัน'
+  return 'ช้อปปิ้ง'
+}
+
+function OverviewTab({ income, expense, net, expenseByCategory, month }: {
+  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; month: string
 }) {
+  const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
+  const [bills, setBills] = useState<BillFile[]>([])
+  const [billsLoading, setBillsLoading] = useState(false)
+  const [billsError, setBillsError] = useState<string | null>(null)
+  const [billsSynced, setBillsSynced] = useState(false)
+  const [emailsLoading, setEmailsLoading] = useState(false)
+
+  // PDF import state
+  const [importState, setImportState] = useState<ImportState | null>(null)
+  const [importing, setImporting] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  // Track already-synced Drive file IDs via rawRef
+  const syncedFileIds = useLiveQuery(async () => {
+    const records = await db.financeRecords.filter(r => !!r.rawRef && (r.rawRef as string).length > 10).toArray()
+    return new Set(records.map(r => r.rawRef as string))
+  }, [], new Set<string>())
+
+  // Selected month's bills
+  const [selectedYear, selectedMonthNum] = month.split('-').map(Number)
+  const monthBills = bills.filter(b => b.year === selectedYear && b.month === selectedMonthNum)
+  const allBillsByMonth = bills.reduce((acc, b) => {
+    const key = `${b.year}-${String(b.month).padStart(2, '0')}`
+    if (!acc[key]) acc[key] = []
+    acc[key].push(b)
+    return acc
+  }, {} as Record<string, BillFile[]>)
+
+  const BANK_LABELS: Record<string, { label: string; color: string }> = {
+    KBANK:    { label: 'กสิกร', color: 'bg-green-100 text-green-700' },
+    KTC:      { label: 'KTC', color: 'bg-blue-100 text-blue-700' },
+    KRUNGSRI: { label: 'กรุงศรี', color: 'bg-yellow-100 text-yellow-700' },
+    UOB:      { label: 'ยูโอบี', color: 'bg-red-100 text-red-700' },
+    SCB:      { label: 'ไทยพาณิชย์', color: 'bg-purple-100 text-purple-700' },
+    BBL:      { label: 'กรุงเทพ', color: 'bg-indigo-100 text-indigo-700' },
+    BAY:      { label: 'กรุงศรี', color: 'bg-yellow-100 text-yellow-700' },
+    CITIBANK: { label: 'Citi', color: 'bg-red-100 text-red-700' },
+  }
+
+  async function syncBills() {
+    if (!tokens?.accessToken) return
+    setBillsLoading(true)
+    setBillsError(null)
+    try {
+      const result = await listBillFiles(tokens.accessToken)
+      setBills(result)
+      setBillsSynced(true)
+      setToast({ text: `โหลดสำเร็จ ${result.length} ไฟล์`, type: 'success' })
+    } catch (e: any) {
+      const msg = e.message ?? 'ไม่สามารถโหลดไฟล์จาก Drive ได้'
+      setBillsError(msg)
+      setToast({ text: msg, type: 'error' })
+    } finally {
+      setBillsLoading(false)
+    }
+  }
+
+  async function syncEmails() {
+    if (!tokens?.accessToken) return
+    setEmailsLoading(true)
+    try {
+      const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
+      const messages = await fetchGmailBankMessages(tokens.accessToken)
+      const parsed = messages.map(parseBankEmail)
+
+      for (const txn of parsed) {
+        await db.financeRecords.add({
+          date: txn.date,
+          amount: txn.amount,
+          type: txn.type,
+          category: txn.type === 'income' ? 'อื่นๆ' : 'เดินทาง',
+          description: txn.description,
+          note: `[${txn.source}]`,
+        } as any)
+      }
+      setToast({ text: `บันทึก ${parsed.length} รายการจาก Gmail`, type: 'success' })
+    } catch (e: any) {
+      setToast({ text: e.message ?? 'ไม่สามารถอ่าน Gmail ได้', type: 'error' })
+    } finally {
+      setEmailsLoading(false)
+    }
+  }
+
+  async function importPdf(bill: BillFile) {
+    if (!tokens?.accessToken) return
+    setImporting(bill.id)
+    try {
+      const [{ downloadDriveFile }, { parseBillPdf }] = await Promise.all([
+        import('../api/google'),
+        import('../api/pdfParser'),
+      ])
+      const buffer = await downloadDriveFile(tokens.accessToken, bill.id)
+      const txns = await parseBillPdf(buffer, bill.bankName)
+      const txnsWithCat = txns.map(t => ({ ...t, category: detectCat(t.description) }))
+      setImportState({
+        file: bill,
+        txns: txnsWithCat,
+        selected: new Array(txnsWithCat.length).fill(true),
+      })
+    } catch (e: any) {
+      setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
+    } finally {
+      setImporting(null)
+    }
+  }
+
+  async function saveImport() {
+    if (!importState) return
+    const toSave = importState.txns.filter((_, i) => importState.selected[i])
+    for (const txn of toSave) {
+      await db.financeRecords.add({
+        date: txn.transDate,
+        amount: Math.abs(txn.amount),
+        type: txn.amount < 0 ? 'income' : 'expense',
+        category: txn.amount < 0 ? 'อื่นๆ' : txn.category,
+        description: txn.description,
+        note: `[${txn.bankName}${txn.cardType ? ' ' + txn.cardType : ''}]`,
+        rawRef: importState.file.id,
+      } as any)
+    }
+    setImportState(null)
+    setToast({ text: `บันทึก ${toSave.length} รายการแล้ว`, type: 'success' })
+  }
+
+  const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+
   return (
     <>
+      <Toast message={toast?.text ?? null} type={toast?.type} onDone={() => setToast(null)} />
       <div className="px-4 pt-3 grid grid-cols-3 gap-2">
         <Card className="!p-3 text-center">
           <div className="text-[11px] text-gray-400 font-semibold">รายรับ</div>
@@ -134,15 +282,233 @@ function OverviewTab({ income, expense, net, expenseByCategory }: {
         </>
       )}
 
+      {/* Gmail sync section */}
       <div className="mx-4 mb-4">
         <Card className="!bg-blue-50">
           <div className="text-[13px] font-semibold text-blue-700 mb-2">📧 Sync จาก Gmail</div>
           <div className="text-[12px] text-blue-600 mb-3">อ่านอีเมลโอนเงิน กสิกร/กรุงเทพ อัตโนมัติ</div>
-          <button className="bg-blue-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full">
-            Sync ธนาคาร (ต้องต่อ Google)
-          </button>
+          {!tokens?.accessToken ? (
+            <div className="text-[12px] text-blue-500 mb-2">ต้องต่อ Google ก่อน (Settings)</div>
+          ) : (
+            <button
+              onClick={syncEmails}
+              disabled={emailsLoading}
+              className="bg-blue-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full disabled:opacity-60"
+            >
+              {emailsLoading ? '⏳ กำลังโหลด...' : '📧 Sync ธนาคาร'}
+            </button>
+          )}
         </Card>
       </div>
+
+      {/* Credit card PDF section */}
+      <div className="mx-4 mb-4">
+        <Card className="!bg-purple-50">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-[13px] font-semibold text-purple-700">📄 บัตรเครดิต PDF</div>
+            {billsSynced && (
+              <span className="text-[11px] text-purple-500">{bills.length} ไฟล์</span>
+            )}
+          </div>
+          <div className="text-[12px] text-purple-600 mb-2.5">
+            folder: <code className="bg-purple-100 px-1 rounded text-[11px]">daily-incom-expense</code>
+            <br />รูปแบบไฟล์: Bill_yyyymmdd_bankname.pdf
+          </div>
+
+          {!tokens?.accessToken ? (
+            <div className="text-[12px] text-purple-500 mb-2">ต้องต่อ Google ก่อน (Settings)</div>
+          ) : (
+            <button
+              onClick={syncBills}
+              disabled={billsLoading}
+              className="bg-purple-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full disabled:opacity-60"
+            >
+              {billsLoading ? '⏳ กำลังโหลด...' : '🔄 Sync บิลบัตรเครดิต'}
+            </button>
+          )}
+
+          {billsError && (
+            <div className="mt-2 text-[12px] text-red-600 bg-red-50 rounded-lg px-3 py-2">{billsError}</div>
+          )}
+
+          {/* Bills for current month */}
+          {billsSynced && monthBills.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[12px] font-semibold text-purple-600 mb-1.5">
+                บิลเดือน {THAI_MONTHS[selectedMonthNum - 1]} {selectedYear}
+              </div>
+              <div className="flex flex-col gap-2">
+                {monthBills.map(bill => {
+                  const bankInfo = BANK_LABELS[bill.bankName] ?? { label: bill.bankName, color: 'bg-gray-100 text-gray-600' }
+                  const dateDisplay = `${bill.dateStr.slice(6, 8)}/${bill.dateStr.slice(4, 6)}/${bill.dateStr.slice(0, 4)}`
+                  const isImporting = importing === bill.id
+                  const alreadySynced = syncedFileIds?.has(bill.id) ?? false
+                  return (
+                    <div key={bill.id} className="bg-white rounded-xl px-3 py-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">📄</span>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${bankInfo.color}`}>{bankInfo.label}</span>
+                              <span className="text-[12px] text-gray-500">{dateDisplay}</span>
+                              {alreadySynced && (
+                                <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">✓ นำเข้าแล้ว</span>
+                              )}
+                            </div>
+                            {bill.size && (
+                              <div className="text-[10px] text-gray-400">{(parseInt(bill.size) / 1024).toFixed(0)} KB</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          {!alreadySynced && (
+                            <button
+                              onClick={() => importPdf(bill)}
+                              disabled={isImporting}
+                              className="text-[12px] font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg active:scale-95 disabled:opacity-50"
+                            >
+                              {isImporting ? '⏳' : '📥 นำเข้า'}
+                            </button>
+                          )}
+                          {bill.webViewLink && (
+                            <a href={bill.webViewLink} target="_blank" rel="noopener noreferrer"
+                              className="text-[12px] font-semibold text-purple-600 bg-purple-50 px-2.5 py-1.5 rounded-lg active:scale-95">
+                              เปิด
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Bills grouped by month when no match */}
+          {billsSynced && monthBills.length === 0 && bills.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[12px] text-purple-500 mb-2">ไม่มีบิลเดือนนี้ — บิลทั้งหมด:</div>
+              <div className="flex flex-col gap-1.5">
+                {Object.entries(allBillsByMonth)
+                  .sort((a, b) => b[0].localeCompare(a[0]))
+                  .slice(0, 6)
+                  .map(([monthKey, mBills]) => {
+                    const [y, m] = monthKey.split('-').map(Number)
+                    return (
+                      <div key={monthKey} className="flex items-center justify-between bg-white rounded-xl px-3 py-2">
+                        <span className="text-[12px] font-semibold text-gray-700">
+                          {THAI_MONTHS[m - 1]} {y} ({mBills.length} ไฟล์)
+                        </span>
+                        <div className="flex gap-1">
+                          {mBills.map(b => {
+                            const bInfo = BANK_LABELS[b.bankName] ?? { label: b.bankName, color: 'bg-gray-100 text-gray-600' }
+                            return (
+                              <a key={b.id} href={b.webViewLink} target="_blank" rel="noopener noreferrer"
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${bInfo.color}`}>
+                                {bInfo.label}
+                              </a>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
+
+          {billsSynced && bills.length === 0 && (
+            <div className="mt-2 text-[12px] text-purple-500">ไม่พบไฟล์ Bill_*.pdf ใน folder</div>
+          )}
+        </Card>
+      </div>
+
+      {/* PDF Import Modal */}
+      {importState && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end">
+          <div className="w-full bg-white rounded-t-3xl max-h-[88vh] flex flex-col">
+            <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+              <div>
+                <div className="text-[16px] font-bold text-gray-900">นำเข้ารายการ</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">
+                  {importState.file.bankName} · {importState.file.dateStr.slice(6, 8)}/{importState.file.dateStr.slice(4, 6)}/{importState.file.dateStr.slice(0, 4)}
+                </div>
+              </div>
+              <button onClick={() => setImportState(null)} className="text-gray-400 text-xl w-8 h-8 flex items-center justify-center">✕</button>
+            </div>
+
+            {importState.txns.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-gray-400">
+                <div className="text-4xl mb-2">🔍</div>
+                <div className="text-[13px]">ไม่พบรายการในไฟล์นี้</div>
+                <div className="text-[11px] mt-1 text-gray-300">รูปแบบ PDF อาจไม่ตรงกับที่รองรับ</div>
+              </div>
+            ) : (
+              <>
+                <div className="px-4 py-2 flex items-center justify-between border-b border-gray-100 flex-shrink-0 bg-gray-50">
+                  <div className="text-[13px] text-gray-600 font-medium">
+                    {importState.selected.filter(Boolean).length} / {importState.txns.length} รายการ
+                  </div>
+                  <button
+                    onClick={() => {
+                      const allSelected = importState.selected.every(Boolean)
+                      setImportState(s => s ? { ...s, selected: s.selected.map(() => !allSelected) } : s)
+                    }}
+                    className="text-[12px] text-indigo-600 font-semibold"
+                  >
+                    {importState.selected.every(Boolean) ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                  {importState.txns.map((txn, i) => (
+                    <label key={i} className={`flex items-start gap-3 px-4 py-3 border-b border-gray-50 cursor-pointer ${importState.selected[i] ? '' : 'opacity-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={importState.selected[i]}
+                        onChange={() => setImportState(s => {
+                          if (!s) return s
+                          const sel = [...s.selected]
+                          sel[i] = !sel[i]
+                          return { ...s, selected: sel }
+                        })}
+                        className="mt-0.5 w-4 h-4 accent-indigo-600 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-gray-800 leading-snug">{txn.description}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] text-gray-400">{txn.transDate}</span>
+                          <span className="text-[10px] text-indigo-500 bg-indigo-50 px-1.5 rounded-full">{txn.category}</span>
+                          {txn.installmentInfo && (
+                            <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 rounded-full">
+                              งวด {txn.installmentInfo.current}/{txn.installmentInfo.total}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className={`text-[14px] font-bold flex-shrink-0 ${txn.amount < 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {txn.amount < 0 ? '-' : '+'}{formatCurrency(Math.abs(txn.amount))}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="px-4 py-4 border-t border-gray-100 flex-shrink-0 bg-white">
+                  <button
+                    onClick={saveImport}
+                    disabled={importState.selected.every(v => !v)}
+                    className="w-full bg-indigo-600 text-white font-bold text-[15px] py-3.5 rounded-2xl active:scale-[0.98] disabled:opacity-40"
+                  >
+                    บันทึก {importState.selected.filter(Boolean).length} รายการ
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }

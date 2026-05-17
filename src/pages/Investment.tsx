@@ -6,6 +6,7 @@ import type { InvestmentType, InsuranceDetails, SavingsDetails } from '../db/typ
 import PageHeader from '../components/PageHeader'
 import { formatCurrency, formatPct } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
+import { Toast } from '../components/Card'
 
 const TYPE_LABELS: Record<InvestmentType, string> = {
   thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
@@ -24,6 +25,7 @@ export default function Investment() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
+  const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const investments = useLiveQuery(() => db.investments.orderBy('type').toArray())
   const dividends = useLiveQuery(() => db.dividends.toArray())
@@ -59,8 +61,9 @@ export default function Investment() {
         }
       }
       setLastSync(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }))
+      if (!silent) setToastMsg({ text: 'อัพเดทราคาสำเร็จ', type: 'success' })
     } catch {
-      // silent fail
+      if (!silent) setToastMsg({ text: 'ไม่สามารถโหลดราคาได้', type: 'error' })
     } finally {
       if (!silent) setSyncing(false)
     }
@@ -81,6 +84,7 @@ export default function Investment() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      <Toast message={toastMsg?.text ?? null} type={toastMsg?.type} onDone={() => setToastMsg(null)} />
       <PageHeader
         title="การลงทุน"
         rightAction={{ label: '＋ เพิ่ม', onClick: () => { setEditItem(null); setShowForm(true) } }}

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -46,6 +46,31 @@ export function StatusTag({ status, label }: StatusTagProps) {
     <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${TAG_STYLES[status]}`}>
       {label}
     </span>
+  )
+}
+
+// Auto-dismiss toast notification
+export function Toast({ message, type = 'success', onDone }: {
+  message: string | null
+  type?: 'success' | 'error'
+  onDone: () => void
+}) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (!message) return
+    setVisible(true)
+    const t = setTimeout(() => { setVisible(false); setTimeout(onDone, 300) }, 2500)
+    return () => clearTimeout(t)
+  }, [message])
+
+  if (!message) return null
+  return (
+    <div className={`fixed top-[calc(env(safe-area-inset-top)+12px)] left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-2xl shadow-lg text-[13px] font-semibold text-white transition-all duration-300 whitespace-nowrap
+      ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}
+      ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+      {type === 'success' ? '✓ ' : '✕ '}{message}
+    </div>
   )
 }
 

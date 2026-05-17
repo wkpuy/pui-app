@@ -80,23 +80,35 @@ export interface HealthRecord {
   ggt?: number            // U/L
   // Inflammation / Heart
   hsCrp?: number          // mg/L
+  homocysteine?: number   // µmol/L — brain+heart risk
+  omega3Index?: number    // % — optimal >8
+  cacScore?: number       // Coronary Artery Calcium score — 0 is optimal
   // Thyroid
   tsh?: number            // mIU/L
+  // Hormones (longevity)
+  dheaS?: number          // µg/dL — DHEA-S
+  igf1?: number           // ng/mL — IGF-1
+  cortisol?: number       // µg/dL — AM cortisol
   // Vitamins & minerals
   vitaminD?: number       // ng/mL
   vitaminB12?: number     // pg/mL
   vitaminB6?: number      // ng/mL
   vitaminB1?: number      // nmol/L
   magnesium?: number      // mg/dL
+  ferritin?: number       // ng/mL
   // Body composition
   weightKg?: number
   bodyFatPct?: number
   muscleMassKg?: number
   waistCm?: number
+  boneDensityTScore?: number  // DEXA T-score
   // CBC
   hemoglobin?: number     // g/dL
   wbc?: number            // x10³/μL
   platelets?: number      // x10³/μL
+  // Physical performance
+  gripStrength?: number   // kg
+  mocaScore?: number      // MoCA cognitive test /30
   // Female hormones
   estradiol?: number      // pg/mL
   progesterone?: number   // ng/mL
