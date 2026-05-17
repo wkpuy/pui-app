@@ -6,6 +6,7 @@ const tabs = [
   { path: '/health',     icon: '❤️', label: 'สุขภาพ' },
   { path: '/finance',    icon: '📊', label: 'การเงิน' },
   { path: '/retirement', icon: '🎯', label: 'เกษียณ' },
+  { path: '/calendar',   icon: '📅', label: 'ปฏิทิน' },
   { path: '/coach',      icon: '🤖', label: 'AI Coach' },
 ]
 
@@ -24,8 +25,8 @@ export default function BottomNav() {
               onClick={() => navigate(tab.path)}
               className="flex-1 flex flex-col items-center py-2 gap-0.5 min-h-[52px]"
             >
-              <span className="text-xl leading-none">{tab.icon}</span>
-              <span className={`text-[10px] font-medium leading-none ${active ? 'text-indigo-600' : 'text-gray-400'}`}>
+              <span className="text-lg leading-none">{tab.icon}</span>
+              <span className={`text-[9px] font-medium leading-none ${active ? 'text-indigo-600' : 'text-gray-400'}`}>
                 {tab.label}
               </span>
             </button>

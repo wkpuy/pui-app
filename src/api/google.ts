@@ -53,15 +53,15 @@ export async function signInWithGoogle(clientId: string): Promise<{ accessToken:
   })
 }
 
-export async function fetchCalendarEvents(accessToken: string, daysAhead = 30) {
+export async function fetchCalendarEvents(accessToken: string, timeMinIso?: string, timeMaxIso?: string) {
   const now = new Date()
-  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
+  const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
   const params = new URLSearchParams({
-    timeMin: now.toISOString(),
-    timeMax: future.toISOString(),
+    timeMin: timeMinIso ?? now.toISOString(),
+    timeMax: timeMaxIso ?? future.toISOString(),
     singleEvents: 'true',
     orderBy: 'startTime',
-    maxResults: '50',
+    maxResults: '100',
   })
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,

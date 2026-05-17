@@ -9,6 +9,9 @@ import AICoach from './pages/AICoach'
 import Settings from './pages/Settings'
 import AnnualWrapped from './pages/AnnualWrapped'
 import ShortcutsGuide from './pages/ShortcutsGuide'
+import Calendar from './pages/Calendar'
+import Salary from './pages/Salary'
+import Condo from './pages/Condo'
 
 export default function App() {
   return (
@@ -16,6 +19,8 @@ export default function App() {
       <Routes>
         <Route path="/wrapped" element={<AnnualWrapped />} />
         <Route path="/shortcuts-guide" element={<ShortcutsGuide />} />
+        <Route path="/salary" element={<Salary />} />
+        <Route path="/condo" element={<Condo />} />
         <Route path="*" element={<MainLayout />} />
       </Routes>
     </BrowserRouter>
@@ -33,6 +38,7 @@ function MainLayout() {
           <Route path="/retirement" element={<Retirement />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/coach" element={<AICoach />} />
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>

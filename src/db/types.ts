@@ -9,6 +9,22 @@ export interface Profile {
   heightCm: number
 }
 
+export interface InsuranceDetails {
+  company?: string
+  policyType?: 'life' | 'health' | 'accident' | 'savings_insurance' | 'other'
+  paymentFrequency?: 'monthly' | 'quarterly' | 'annual' | 'lumpsum'
+  premiumAmount?: number
+  coverageAmount?: number
+  maturityDate?: string // YYYY-MM-DD
+}
+
+export interface SavingsDetails {
+  bankName?: string
+  accountType?: 'regular' | 'fixed_deposit' | 'money_market'
+  interestRate?: number
+  autoSyncGmail?: boolean
+}
+
 export interface Investment {
   id?: number
   type: InvestmentType
@@ -20,6 +36,8 @@ export interface Investment {
   hasDividend: boolean
   currency: 'THB' | 'USD' | 'OTHER'
   notes?: string
+  insuranceDetails?: InsuranceDetails
+  savingsDetails?: SavingsDetails
   createdAt: string
   updatedAt: string
 }
@@ -36,16 +54,55 @@ export interface Dividend {
 export interface HealthRecord {
   id?: number
   date: string // YYYY-MM-DD
-  systolic?: number       // ความดันบน
-  diastolic?: number      // ความดันล่าง
-  heartRate?: number      // bpm
-  glucose?: number        // น้ำตาล mg/dL
-  ldl?: number            // ไขมัน LDL
-  hdl?: number            // ไขมัน HDL
-  triglycerides?: number  // ไตรกลีเซอไรด์
-  hba1c?: number          // HbA1c %
-  creatinine?: number     // ครีเอตินิน
-  uricAcid?: number       // กรดยูริก
+  // Basic vitals
+  systolic?: number
+  diastolic?: number
+  heartRate?: number
+  // Blood sugar
+  glucose?: number        // mg/dL fasting
+  hba1c?: number          // %
+  fastingInsulin?: number // μU/mL
+  homaIr?: number         // calculated: (glucose * insulin) / 405
+  // Lipids
+  ldl?: number
+  hdl?: number
+  triglycerides?: number
+  totalCholesterol?: number
+  apoB?: number           // mg/dL
+  lpA?: number            // mg/dL
+  // Kidney
+  creatinine?: number
+  uricAcid?: number
+  egfr?: number
+  // Liver
+  alt?: number            // U/L
+  ast?: number            // U/L
+  ggt?: number            // U/L
+  // Inflammation / Heart
+  hsCrp?: number          // mg/L
+  // Thyroid
+  tsh?: number            // mIU/L
+  // Vitamins & minerals
+  vitaminD?: number       // ng/mL
+  vitaminB12?: number     // pg/mL
+  vitaminB6?: number      // ng/mL
+  vitaminB1?: number      // nmol/L
+  magnesium?: number      // mg/dL
+  // Body composition
+  weightKg?: number
+  bodyFatPct?: number
+  muscleMassKg?: number
+  waistCm?: number
+  // CBC
+  hemoglobin?: number     // g/dL
+  wbc?: number            // x10³/μL
+  platelets?: number      // x10³/μL
+  // Female hormones
+  estradiol?: number      // pg/mL
+  progesterone?: number   // ng/mL
+  fsh?: number            // mIU/mL
+  lh?: number             // mIU/mL
+  testosterone?: number   // ng/dL
   notes?: string
 }
 
@@ -54,24 +111,26 @@ export interface HealthDaily {
   date: string // YYYY-MM-DD
   weightKg?: number
   steps?: number
-  sleepTotal?: number  // hours
-  sleepDeep?: number   // hours
-  sleepRem?: number    // hours
-  sleepLight?: number  // hours
+  sleepTotal?: number
+  sleepDeep?: number
+  sleepRem?: number
+  sleepLight?: number
   waterMl?: number
   caloriesBurned?: number
   vo2max?: number
   activeMinutes?: number
-  source?: string // 'apple_health' | 'whoop' | 'manual'
+  source?: string
 }
 
 export interface RetirementPlan {
   id?: number
   targetRetirementAge: number
+  lifeExpectancy: number
   monthlyExpenseAtRetirement: number
   currentAge?: number
-  expectedReturnRate: number  // % per year
-  inflationRate: number       // % per year
+  expectedReturnRate: number
+  postRetirementReturnRate: number
+  inflationRate: number
   currentTotalAssets: number
   updatedAt: string
 }
@@ -84,7 +143,44 @@ export interface FinanceRecord {
   category: string
   description: string
   source: 'kasikorn' | 'bangkok_bank' | 'credit_card' | 'manual' | 'other'
-  rawRef?: string // email/PDF reference
+  rawRef?: string
+}
+
+export interface Installment {
+  id?: number
+  name: string
+  totalAmount: number
+  monthlyAmount: number
+  totalInstallments: number
+  paidInstallments: number
+  startDate: string // YYYY-MM-DD
+  category: string
+  source: string
+  notes?: string
+}
+
+export interface SalaryRecord {
+  id?: number
+  year: number
+  baseSalary: number         // monthly
+  bonus: number              // annual lump sum
+  pvdEmployeeRate: number    // % of salary
+  pvdEmployerRate: number    // % of salary
+  notes?: string
+}
+
+export interface CondoMortgage {
+  id?: number
+  propertyName: string
+  totalPrice: number
+  downPayment: number
+  loanAmount: number
+  interestRate: number       // % per year
+  loanTermYears: number
+  startDate: string          // YYYY-MM-DD
+  bankName: string
+  monthlyExtra: number       // extra payment per month
+  notes?: string
 }
 
 export interface EmergencyFund {

@@ -8,7 +8,9 @@ import { formatCurrency, calcRetirementTarget, calcMonthlySaving, getAgeDetail }
 export default function Retirement() {
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
   const plan = useLiveQuery(() => db.retirementPlan.toArray().then(r => r[0]))
-  const [showForm, setShowForm] = useState(!plan)
+  const investments = useLiveQuery(() => db.investments.toArray())
+  const [showForm, setShowForm] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'projection' | 'assets'>('overview')
 
   const age = profile ? getAgeDetail(profile.dob).years : 35
   const target = plan ? calcRetirementTarget(plan.monthlyExpenseAtRetirement) : 0
@@ -16,11 +18,35 @@ export default function Retirement() {
   const yearsLeft = plan ? Math.max(plan.targetRetirementAge - age, 0) : 0
   const monthlySaving = plan ? calcMonthlySaving(target, plan.currentTotalAssets, yearsLeft, plan.expectedReturnRate) : 0
 
+  // Post-retirement projection
+  const retirementYears = plan ? (plan.lifeExpectancy ?? 85) - plan.targetRetirementAge : 30
+  const postReturnRate = plan?.postRetirementReturnRate ?? 4
+  const projectedMonths = retirementYears * 12
+  const postMonthlyRateCalc = postReturnRate / 100 / 12
+  const sustainableMonthly = plan?.currentTotalAssets && projectedMonths > 0
+    ? (plan.currentTotalAssets * postMonthlyRateCalc) / (1 - Math.pow(1 + postMonthlyRateCalc, -projectedMonths))
+    : 0
+
+  // Investment breakdown by type
+  const invByType = investments?.reduce((acc, inv) => {
+    acc[inv.type] = (acc[inv.type] ?? 0) + inv.currentValue
+    return acc
+  }, {} as Record<string, number>) ?? {}
+  const totalInv = Object.values(invByType).reduce((s, v) => s + v, 0)
+
+  const TYPE_LABELS: Record<string, string> = {
+    thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
+    fund: 'กองทุน', insurance: 'ประกัน', savings: 'ออมทรัพย์', other: 'อื่นๆ',
+  }
+  const TYPE_COLORS: Record<string, string> = {
+    thai_stock: 'bg-blue-500', foreign_stock: 'bg-emerald-500',
+    fund: 'bg-indigo-500', insurance: 'bg-amber-500', savings: 'bg-green-500', other: 'bg-gray-400',
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <PageHeader title="แผนเกษียณ" rightAction={{ label: plan ? 'แก้ไข' : '+ ตั้งค่า', onClick: () => setShowForm(true) }} />
       <div className="flex-1 overflow-y-auto">
-
         {!plan ? (
           <div className="text-center py-16 text-gray-400 px-8">
             <div className="text-5xl mb-4">🎯</div>
@@ -31,7 +57,7 @@ export default function Retirement() {
           </div>
         ) : (
           <>
-            {/* Target banner */}
+            {/* Banner */}
             <div className="bg-gradient-to-br from-indigo-600 to-purple-700 px-5 py-5 text-white">
               <div className="flex justify-between items-start mb-3">
                 <div>
@@ -43,63 +69,235 @@ export default function Retirement() {
                   <div className="text-xl font-bold">{formatCurrency(plan.monthlyExpenseAtRetirement)}</div>
                 </div>
               </div>
-              <div className="text-sm opacity-80">
-                เหลือเวลา {yearsLeft} ปี {Math.round((yearsLeft % 1) * 12)} เดือน
+              <div className="text-sm opacity-80 flex gap-3">
+                <span>เหลือ {yearsLeft.toFixed(0)} ปี</span>
+                <span>·</span>
+                <span>อายุขัย {plan.lifeExpectancy ?? 85} ปี</span>
+                <span>·</span>
+                <span>หลังเกษียณ {retirementYears} ปี</span>
               </div>
             </div>
 
-            {/* Progress */}
-            <div className="mx-4 mt-3">
-              <Card>
-                <div className="flex justify-between mb-2">
-                  <div>
-                    <CardTitle>ความคืบหน้า</CardTitle>
-                    <div className="text-3xl font-bold text-gray-900">{progress.toFixed(0)}%</div>
-                  </div>
-                  <div className="text-right">
-                    <CardTitle>มีอยู่แล้ว</CardTitle>
-                    <div className="text-xl font-bold text-green-600">{formatCurrency(plan.currentTotalAssets)}</div>
-                  </div>
-                </div>
-                <ProgressBar value={progress} max={100} color={progress >= 80 ? 'bg-green-500' : progress >= 50 ? 'bg-indigo-500' : 'bg-amber-500'} />
-                <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-                  <span>ยังขาด {formatCurrency(Math.max(target - plan.currentTotalAssets, 0))}</span>
-                  <span>เป้า {formatCurrency(target)}</span>
-                </div>
-              </Card>
+            {/* Sub tabs */}
+            <div className="flex bg-white border-b border-gray-100">
+              {([['overview', 'ภาพรวม'], ['projection', 'คาดการณ์'], ['assets', 'สินทรัพย์']] as const).map(([t, l]) => (
+                <button key={t} onClick={() => setActiveTab(t)}
+                  className={`flex-1 py-3 text-[13px] font-semibold border-b-2 transition-colors ${activeTab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
+                  {l}
+                </button>
+              ))}
             </div>
 
-            {/* Monthly saving */}
-            <div className="mx-4 mt-3">
-              <Card className="!bg-indigo-50">
-                <CardTitle>ต้องออมต่อเดือน (อีก {yearsLeft} ปี)</CardTitle>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <div className="text-3xl font-bold text-indigo-700">{formatCurrency(monthlySaving)}</div>
-                  <div className="text-sm text-indigo-400">/ เดือน</div>
+            {activeTab === 'overview' && (
+              <>
+                {/* Progress */}
+                <div className="mx-4 mt-3">
+                  <Card>
+                    <div className="flex justify-between mb-2">
+                      <div>
+                        <CardTitle>ความคืบหน้า</CardTitle>
+                        <div className="text-3xl font-bold text-gray-900">{progress.toFixed(0)}%</div>
+                      </div>
+                      <div className="text-right">
+                        <CardTitle>มีอยู่แล้ว</CardTitle>
+                        <div className="text-xl font-bold text-green-600">{formatCurrency(plan.currentTotalAssets)}</div>
+                      </div>
+                    </div>
+                    <ProgressBar value={progress} max={100} color={progress >= 80 ? 'bg-green-500' : progress >= 50 ? 'bg-indigo-500' : 'bg-amber-500'} />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+                      <span>ยังขาด {formatCurrency(Math.max(target - plan.currentTotalAssets, 0))}</span>
+                      <span>เป้า {formatCurrency(target)}</span>
+                    </div>
+                  </Card>
                 </div>
-                <div className="text-xs text-indigo-500 mt-1.5">
-                  คำนวณที่ผลตอบแทนเฉลี่ย {plan.expectedReturnRate}% ต่อปี (4% Rule)
-                </div>
-              </Card>
-            </div>
 
-            {/* What If Simulator */}
-            <SectionLabel>🧮 What If Simulator</SectionLabel>
-            <div className="mx-4 mb-4">
-              <WhatIfSimulator
-                target={target}
-                current={plan.currentTotalAssets}
-                yearsLeft={yearsLeft}
-                returnRate={plan.expectedReturnRate}
-                monthly={monthlySaving}
+                {/* Monthly saving needed */}
+                <div className="mx-4 mt-3">
+                  <Card className="!bg-indigo-50">
+                    <CardTitle>ต้องออมต่อเดือน (อีก {yearsLeft.toFixed(0)} ปี)</CardTitle>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <div className="text-3xl font-bold text-indigo-700">{formatCurrency(monthlySaving)}</div>
+                      <div className="text-sm text-indigo-400">/ เดือน</div>
+                    </div>
+                    <div className="text-xs text-indigo-500 mt-1.5">
+                      ผลตอบแทนก่อนเกษียณ {plan.expectedReturnRate}% · เฟ้อ {plan.inflationRate}% (4% Rule)
+                    </div>
+                  </Card>
+                </div>
+
+                {/* What If Simulator */}
+                <SectionLabel>🧮 What If Simulator</SectionLabel>
+                <div className="mx-4 mb-4">
+                  <WhatIfSimulator
+                    target={target} current={plan.currentTotalAssets}
+                    yearsLeft={yearsLeft} returnRate={plan.expectedReturnRate} monthly={monthlySaving}
+                  />
+                </div>
+              </>
+            )}
+
+            {activeTab === 'projection' && (
+              <PostRetirementProjection
+                currentAssets={plan.currentTotalAssets}
+                monthlyExpense={plan.monthlyExpenseAtRetirement}
+                postReturnRate={postReturnRate}
+                retirementYears={retirementYears}
+                sustainableMonthly={sustainableMonthly}
+                targetRetirementAge={plan.targetRetirementAge}
+                lifeExpectancy={plan.lifeExpectancy ?? 85}
               />
-            </div>
+            )}
+
+            {activeTab === 'assets' && (
+              <AssetsTab invByType={invByType} totalInv={totalInv} plan={plan} TYPE_LABELS={TYPE_LABELS} TYPE_COLORS={TYPE_COLORS} />
+            )}
           </>
         )}
         <div className="h-4" />
       </div>
 
       {showForm && <RetirementForm plan={plan} onClose={() => setShowForm(false)} />}
+    </div>
+  )
+}
+
+function PostRetirementProjection({ currentAssets, monthlyExpense, postReturnRate, retirementYears, sustainableMonthly, targetRetirementAge, lifeExpectancy }: {
+  currentAssets: number; monthlyExpense: number; postReturnRate: number; retirementYears: number;
+  sustainableMonthly: number; targetRetirementAge: number; lifeExpectancy: number;
+}) {
+  const [simExtra, setSimExtra] = useState(0)
+
+  // Year-by-year projection
+  const rows = (() => {
+    const result = []
+    let balance = currentAssets
+    const spend = monthlyExpense + simExtra
+    for (let yr = 0; yr <= retirementYears; yr++) {
+      result.push({ year: targetRetirementAge + yr, balance: Math.max(balance, 0) })
+      const annual = balance * (postReturnRate / 100)
+      balance = balance + annual - spend * 12
+      if (balance <= 0) { result.push({ year: targetRetirementAge + yr + 1, balance: 0 }); break }
+    }
+    return result
+  })()
+
+  const depletionAge = rows.find(r => r.balance <= 0)?.year
+  const isSafe = !depletionAge || depletionAge > lifeExpectancy
+  const maxBalance = Math.max(...rows.map(r => r.balance))
+
+  return (
+    <div className="px-4 pt-3 pb-4">
+      <div className="mx-0 mb-4">
+        <Card className={`${isSafe ? '!bg-green-50' : '!bg-red-50'}`}>
+          <div className={`text-[13px] font-semibold mb-1 ${isSafe ? 'text-green-700' : 'text-red-700'}`}>
+            {isSafe ? '✅ เงินพอใช้ถึงอายุ ' + lifeExpectancy + ' ปี' : `⚠️ เงินหมดตอนอายุ ${depletionAge} ปี`}
+          </div>
+          <div className="text-[13px] text-gray-600">
+            Sustainable withdraw: <b className={isSafe ? 'text-green-700' : 'text-red-600'}>{formatCurrency(sustainableMonthly)}/เดือน</b>
+          </div>
+          <div className="text-[12px] text-gray-500 mt-0.5">คาดหวังผลตอบแทน {postReturnRate}%/ปีหลังเกษียณ</div>
+        </Card>
+      </div>
+
+      {/* Extra spend simulator */}
+      <div className="mb-4">
+        <Card>
+          <div className="text-[13px] font-semibold text-gray-700 mb-2">ถ้าใช้เพิ่มต่อเดือน</div>
+          <div className="flex items-center gap-3">
+            <input type="range" min={0} max={50000} step={1000} value={simExtra}
+              onChange={e => setSimExtra(parseInt(e.target.value))}
+              className="flex-1 accent-indigo-600" />
+            <div className="text-[14px] font-bold text-indigo-600 w-24 text-right">{formatCurrency(simExtra)}</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Balance bar chart */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
+        <div className="text-[13px] font-bold text-gray-600 mb-3">ยอดเงินแต่ละปีหลังเกษียณ</div>
+        <div className="flex gap-0.5 items-end h-24">
+          {rows.map((r, i) => {
+            const barH = maxBalance > 0 ? Math.round((r.balance / maxBalance) * 88) : 2
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                <div style={{ height: barH || 2 }}
+                  className={`w-full rounded-t-sm ${r.balance <= 0 ? 'bg-red-300' : r.balance < currentAssets * 0.3 ? 'bg-amber-400' : 'bg-indigo-400'}`} />
+                {i % 5 === 0 && <div className="text-[9px] text-gray-400">{r.year}</div>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Year-by-year table */}
+      <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+        <div className="grid grid-cols-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+          <div className="text-[11px] font-bold text-gray-500">อายุ (ปี)</div>
+          <div className="text-[11px] font-bold text-gray-500 text-right">ยอดเงินคงเหลือ</div>
+        </div>
+        <div className="max-h-48 overflow-y-auto">
+          {rows.map((r, idx) => (
+            <div key={idx} className={`grid grid-cols-2 px-4 py-2 ${idx < rows.length - 1 ? 'border-b border-gray-50' : ''}`}>
+              <div className="text-[13px] text-gray-700">อายุ {r.year} ปี</div>
+              <div className={`text-[13px] font-semibold text-right ${r.balance <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                {r.balance <= 0 ? 'หมดแล้ว' : formatCurrency(r.balance, 0)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AssetsTab({ invByType, totalInv, plan, TYPE_LABELS, TYPE_COLORS }: any) {
+  const totalWithPlan = plan.currentTotalAssets
+  return (
+    <div className="px-4 pt-3 pb-4">
+      <div className="mb-3">
+        <Card>
+          <CardTitle>สินทรัพย์รวม</CardTitle>
+          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalWithPlan)}</div>
+          <div className="text-[12px] text-gray-400 mt-0.5">จากแผนเกษียณ (อัพเดทในฟอร์มแผนเกษียณ)</div>
+        </Card>
+      </div>
+
+      {totalInv > 0 && (
+        <>
+          <div className="text-[13px] font-bold text-gray-500 mb-2 px-1">สัดส่วนการลงทุน</div>
+          <div className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
+            {Object.entries(invByType).sort((a, b) => (b[1] as number) - (a[1] as number)).map(([type, val], idx, arr) => {
+              const pct = totalInv > 0 ? ((val as number) / totalInv) * 100 : 0
+              const color = TYPE_COLORS[type] ?? 'bg-gray-400'
+              return (
+                <div key={type} className={`px-4 py-3 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
+                      <span className="text-[14px] font-medium text-gray-700">{TYPE_LABELS[type] ?? type}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[14px] font-bold text-gray-900">{formatCurrency(val as number, 0)}</span>
+                      <span className="text-[11px] text-gray-400 ml-1">({pct.toFixed(1)}%)</span>
+                    </div>
+                  </div>
+                  <ProgressBar value={pct} max={100} color={color} />
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Allocation advice */}
+          <Card className="!bg-indigo-50">
+            <div className="text-[13px] font-bold text-indigo-700 mb-1.5">📊 แนะนำสัดส่วน (อิง Age Rule)</div>
+            <div className="text-[12px] text-indigo-600 flex flex-col gap-1">
+              <div>• หุ้น/กองทุน: <b>{Math.max(100 - (plan.targetRetirementAge ?? 55), 40)}%</b></div>
+              <div>• พันธบัตร/ออมทรัพย์: <b>{Math.min(plan.targetRetirementAge ?? 55, 60)}%</b></div>
+              <div className="text-[11px] text-indigo-400">Rule: (100 - อายุ) = % ในหุ้น</div>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   )
 }
@@ -128,9 +326,7 @@ function WhatIfSimulator({ target, current, yearsLeft, returnRate, monthly }: {
             → เกษียณเร็วขึ้นประมาณ {yearsEarlyRough} เดือน 🎉
           </div>
         </div>
-
         <div className="h-px bg-gray-100" />
-
         <div>
           <div className="text-[13px] font-semibold text-gray-700 mb-2">ถ้าผลตอบแทนเฉลี่ย</div>
           <div className="flex items-center gap-3">
@@ -152,18 +348,22 @@ function WhatIfSimulator({ target, current, yearsLeft, returnRate, monthly }: {
 function RetirementForm({ plan, onClose }: { plan: any; onClose: () => void }) {
   const [form, setForm] = useState({
     targetRetirementAge: plan?.targetRetirementAge?.toString() ?? '55',
+    lifeExpectancy: plan?.lifeExpectancy?.toString() ?? '85',
     monthlyExpenseAtRetirement: plan?.monthlyExpenseAtRetirement?.toString() ?? '40000',
     currentTotalAssets: plan?.currentTotalAssets?.toString() ?? '0',
     expectedReturnRate: plan?.expectedReturnRate?.toString() ?? '7',
+    postRetirementReturnRate: plan?.postRetirementReturnRate?.toString() ?? '4',
     inflationRate: plan?.inflationRate?.toString() ?? '3',
   })
 
   async function save() {
     const data = {
       targetRetirementAge: parseInt(form.targetRetirementAge),
+      lifeExpectancy: parseInt(form.lifeExpectancy),
       monthlyExpenseAtRetirement: parseFloat(form.monthlyExpenseAtRetirement),
       currentTotalAssets: parseFloat(form.currentTotalAssets),
       expectedReturnRate: parseFloat(form.expectedReturnRate),
+      postRetirementReturnRate: parseFloat(form.postRetirementReturnRate),
       inflationRate: parseFloat(form.inflationRate),
       updatedAt: new Date().toISOString(),
     }
@@ -172,20 +372,24 @@ function RetirementForm({ plan, onClose }: { plan: any; onClose: () => void }) {
     onClose()
   }
 
+  const fields: [string, string, string][] = [
+    ['อายุเกษียณ (ปี)', 'targetRetirementAge', '55'],
+    ['อายุขัยคาดหวัง (ปี)', 'lifeExpectancy', '85'],
+    ['ค่าใช้จ่าย/เดือนตอนเกษียณ', 'monthlyExpenseAtRetirement', '40000'],
+    ['สินทรัพย์ทั้งหมดตอนนี้ (บาท)', 'currentTotalAssets', '0'],
+    ['ผลตอบแทนก่อนเกษียณ (%/ปี)', 'expectedReturnRate', '7'],
+    ['ผลตอบแทนหลังเกษียณ (%/ปี)', 'postRetirementReturnRate', '4'],
+    ['เงินเฟ้อ (%/ปี)', 'inflationRate', '3'],
+  ]
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-bold">แผนเกษียณ</h3>
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
-        {[
-          ['อายุเกษียณ (ปี)', 'targetRetirementAge', '55'],
-          ['ค่าใช้จ่าย/เดือนตอนเกษียณ', 'monthlyExpenseAtRetirement', '40000'],
-          ['สินทรัพย์ทั้งหมดตอนนี้ (บาท)', 'currentTotalAssets', '0'],
-          ['ผลตอบแทนคาดหวัง (%/ปี)', 'expectedReturnRate', '7'],
-          ['เงินเฟ้อ (%/ปี)', 'inflationRate', '3'],
-        ].map(([label, key, ph]) => (
+        {fields.map(([label, key, ph]) => (
           <div key={key}>
             <div className="text-[12px] font-semibold text-gray-500 mb-1">{label}</div>
             <input type="number" placeholder={ph} value={(form as any)[key]}

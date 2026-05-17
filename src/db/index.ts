@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type {
   Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
-  GoogleTokens, SyncLog, AppSettings,
+  GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
 } from './types'
 
 class AppDB extends Dexie {
@@ -18,6 +18,9 @@ class AppDB extends Dexie {
   googleTokens!: Table<GoogleTokens>
   syncLog!: Table<SyncLog>
   settings!: Table<AppSettings>
+  salaryRecords!: Table<SalaryRecord>
+  condoMortgage!: Table<CondoMortgage>
+  installments!: Table<Installment>
 
   constructor() {
     super('PuiPersonalApp')
@@ -35,12 +38,28 @@ class AppDB extends Dexie {
       syncLog: '++id, source',
       settings: '++id',
     })
+    this.version(2).stores({
+      profile: '++id',
+      investments: '++id, type, ticker',
+      dividends: '++id, investmentId, date',
+      healthRecords: '++id, date',
+      healthDaily: '++id, date',
+      retirementPlan: '++id',
+      financeRecords: '++id, date, type, source',
+      emergencyFund: '++id',
+      chatMessages: '++id, timestamp',
+      googleTokens: '++id',
+      syncLog: '++id, source',
+      settings: '++id',
+      salaryRecords: '++id, year',
+      condoMortgage: '++id',
+      installments: '++id, startDate',
+    })
   }
 }
 
 export const db = new AppDB()
 
-// Seed default settings if not exist
 db.on('ready', async () => {
   const count = await db.settings.count()
   if (count === 0) {
@@ -51,6 +70,8 @@ db.on('ready', async () => {
   }
 })
 
-export type { Profile, Investment, Dividend, HealthRecord, HealthDaily,
+export type {
+  Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
-  GoogleTokens, SyncLog, AppSettings }
+  GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
+}

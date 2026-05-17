@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
-import type { Dividend } from '../db'
+import type { Investment, Dividend } from '../db'
+import type { InvestmentType, InsuranceDetails, SavingsDetails } from '../db/types'
 import PageHeader from '../components/PageHeader'
 import { formatCurrency, formatPct } from '../utils/calculations'
-import type { InvestmentType } from '../db/types'
+import { fetchStockPrices } from '../api/stockPrice'
 
 const TYPE_LABELS: Record<InvestmentType, string> = {
   thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
@@ -19,7 +20,10 @@ type Tab = 'all' | InvestmentType
 export default function Investment() {
   const [tab, setTab] = useState<Tab>('all')
   const [showForm, setShowForm] = useState(false)
+  const [editItem, setEditItem] = useState<Investment | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [lastSync, setLastSync] = useState<string | null>(null)
 
   const investments = useLiveQuery(() => db.investments.orderBy('type').toArray())
   const dividends = useLiveQuery(() => db.dividends.toArray())
@@ -28,26 +32,82 @@ export default function Investment() {
   const totalValue = investments?.reduce((s, i) => s + i.currentValue, 0) ?? 0
   const totalGain = totalValue - totalCost
   const gainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : 0
-
   const selectedDividends = dividends?.filter(d => d.investmentId === selectedId) ?? []
+
+  const syncPrices = useCallback(async (silent = false) => {
+    if (!investments || investments.length === 0) return
+    const stockInvs = investments.filter(i =>
+      (i.type === 'thai_stock' || i.type === 'foreign_stock' || i.type === 'fund') && i.ticker
+    )
+    if (stockInvs.length === 0) return
+    if (!silent) setSyncing(true)
+    try {
+      const tickers = stockInvs.map(i => i.ticker!)
+      const prices = await fetchStockPrices(tickers)
+      for (const inv of stockInvs) {
+        const price = prices[inv.ticker!]
+        if (price && inv.shares) {
+          await db.investments.update(inv.id!, {
+            currentValue: parseFloat((price * inv.shares).toFixed(2)),
+            updatedAt: new Date().toISOString(),
+          })
+        } else if (price && !inv.shares) {
+          await db.investments.update(inv.id!, {
+            currentValue: price,
+            updatedAt: new Date().toISOString(),
+          })
+        }
+      }
+      setLastSync(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }))
+    } catch {
+      // silent fail
+    } finally {
+      if (!silent) setSyncing(false)
+    }
+  }, [investments])
+
+  // Auto-fetch on mount
+  useEffect(() => {
+    if (investments && investments.length > 0) {
+      syncPrices(true)
+    }
+  }, [investments?.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function deleteInvestment(id: number) {
+    await db.dividends.where('investmentId').equals(id).delete()
+    await db.investments.delete(id)
+    if (selectedId === id) setSelectedId(null)
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <PageHeader
         title="การลงทุน"
-        rightAction={{ label: '＋ เพิ่ม', onClick: () => setShowForm(true) }}
+        rightAction={{ label: '＋ เพิ่ม', onClick: () => { setEditItem(null); setShowForm(true) } }}
       />
       <div className="flex-1 overflow-y-auto">
         {/* Total banner */}
-        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-5 text-white">
-          <div className="text-xs opacity-80 mb-1">มูลค่ารวม</div>
-          <div className="text-3xl font-bold mb-1">{formatCurrency(totalValue)}</div>
-          <div className="text-sm opacity-90">
-            ต้นทุน {formatCurrency(totalCost)} &nbsp;·&nbsp;
-            <span className={totalGain >= 0 ? 'text-green-200' : 'text-red-200'}>
-              {totalGain >= 0 ? '+' : ''}{formatCurrency(totalGain)} ({formatPct(gainPct)})
-            </span>
+        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-4 text-white">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xs opacity-80 mb-1">มูลค่ารวม</div>
+              <div className="text-3xl font-bold mb-1">{formatCurrency(totalValue)}</div>
+              <div className="text-sm opacity-90">
+                ต้นทุน {formatCurrency(totalCost)} &nbsp;·&nbsp;
+                <span className={totalGain >= 0 ? 'text-green-200' : 'text-red-200'}>
+                  {totalGain >= 0 ? '+' : ''}{formatCurrency(totalGain)} ({formatPct(gainPct)})
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => syncPrices(false)}
+              disabled={syncing}
+              className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1"
+            >
+              {syncing ? '⏳' : '🔄'} {syncing ? 'กำลังอัพเดท...' : 'Sync ราคา'}
+            </button>
           </div>
+          {lastSync && <div className="text-[11px] opacity-60 mt-1">อัพเดทล่าสุด {lastSync}</div>}
         </div>
 
         {/* Tabs */}
@@ -76,34 +136,100 @@ export default function Investment() {
             {filtered.map((inv, idx) => {
               const gain = inv.currentValue - inv.costBasis
               const pct = inv.costBasis > 0 ? (gain / inv.costBasis) * 100 : 0
+              const isExpanded = selectedId === inv.id
               return (
                 <div key={inv.id}>
                   {idx > 0 && <div className="h-px bg-gray-50 mx-4" />}
-                  <button
-                    className="w-full flex items-center justify-between px-4 py-3.5 active:bg-gray-50"
-                    onClick={() => setSelectedId(inv.id === selectedId ? null : inv.id!)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-lg">
-                        {TYPE_ICONS[inv.type]}
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[15px] font-semibold text-gray-900">{inv.name}</div>
-                        <div className="text-xs text-gray-400">
-                          {inv.ticker && `${inv.ticker} · `}ต้นทุน {formatCurrency(inv.costBasis)}
+                  <div className="flex items-center">
+                    <button
+                      className="flex-1 flex items-center justify-between px-4 py-3.5 active:bg-gray-50 text-left"
+                      onClick={() => setSelectedId(inv.id === selectedId ? null : inv.id!)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-lg">
+                          {TYPE_ICONS[inv.type]}
+                        </div>
+                        <div>
+                          <div className="text-[15px] font-semibold text-gray-900">{inv.name}</div>
+                          <div className="text-xs text-gray-400">
+                            {inv.ticker && `${inv.ticker} · `}ต้นทุน {formatCurrency(inv.costBasis)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[15px] font-bold text-gray-900">{formatCurrency(inv.currentValue)}</div>
-                      <div className={`text-xs font-semibold ${gain >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        {gain >= 0 ? '+' : ''}{formatCurrency(gain)} ({formatPct(pct)})
+                      <div className="text-right">
+                        {inv.type === 'insurance' ? (
+                          <div>
+                            <div className="text-[13px] font-semibold text-gray-600">ทุนประกัน</div>
+                            <div className="text-[14px] font-bold text-indigo-600">
+                              {inv.insuranceDetails?.coverageAmount
+                                ? formatCurrency(inv.insuranceDetails.coverageAmount)
+                                : '—'}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="text-[15px] font-bold text-gray-900">{formatCurrency(inv.currentValue)}</div>
+                            <div className={`text-xs font-semibold ${gain >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {gain >= 0 ? '+' : ''}{formatCurrency(gain)} ({formatPct(pct)})
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    </button>
+                    {/* Edit / Delete actions */}
+                    <div className="flex gap-1 pr-3">
+                      <button
+                        onClick={() => { setEditItem(inv); setShowForm(true) }}
+                        className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 active:scale-95"
+                      >✏️</button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`ลบ "${inv.name}" ออกใช่ไหม?`)) deleteInvestment(inv.id!)
+                        }}
+                        className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-400 active:scale-95"
+                      >🗑️</button>
                     </div>
-                  </button>
-                  {/* Expanded: Dividends */}
-                  {selectedId === inv.id && inv.hasDividend && (
-                    <DividendPanel investmentId={inv.id!} dividends={selectedDividends} />
+                  </div>
+
+                  {/* Insurance detail row */}
+                  {isExpanded && inv.type === 'insurance' && inv.insuranceDetails && (
+                    <div className="mx-4 mb-3 bg-indigo-50 rounded-xl p-3 text-[13px]">
+                      <div className="font-semibold text-indigo-700 mb-2">รายละเอียดประกัน</div>
+                      <div className="grid grid-cols-2 gap-y-1.5 text-gray-700">
+                        {inv.insuranceDetails.company && <div>บริษัท: <b>{inv.insuranceDetails.company}</b></div>}
+                        {inv.insuranceDetails.premiumAmount && (
+                          <div>เบี้ย: <b>{formatCurrency(inv.insuranceDetails.premiumAmount)}</b></div>
+                        )}
+                        {inv.insuranceDetails.paymentFrequency && (
+                          <div>ชำระ: <b>{{ monthly: 'รายเดือน', quarterly: 'ราย 3 เดือน', annual: 'รายปี', lumpsum: 'ครั้งเดียว' }[inv.insuranceDetails.paymentFrequency]}</b></div>
+                        )}
+                        {inv.insuranceDetails.maturityDate && (
+                          <div>ครบกำหนด: <b>{inv.insuranceDetails.maturityDate}</b></div>
+                        )}
+                      </div>
+                      {inv.notes && <div className="mt-2 text-gray-500 text-[12px]">{inv.notes}</div>}
+                    </div>
+                  )}
+
+                  {/* Savings detail row */}
+                  {isExpanded && inv.type === 'savings' && (
+                    <div className="mx-4 mb-3 bg-green-50 rounded-xl p-3 text-[13px]">
+                      <div className="font-semibold text-green-700 mb-2">ออมทรัพย์ / เงินฝาก</div>
+                      <div className="grid grid-cols-2 gap-y-1.5 text-gray-700">
+                        {inv.savingsDetails?.bankName && <div>ธนาคาร: <b>{inv.savingsDetails.bankName}</b></div>}
+                        {inv.savingsDetails?.interestRate && <div>ดอกเบี้ย: <b>{inv.savingsDetails.interestRate}%/ปี</b></div>}
+                        {inv.savingsDetails?.accountType && (
+                          <div>ประเภท: <b>{{ regular: 'ออมทรัพย์', fixed_deposit: 'ฝากประจำ', money_market: 'Money Market' }[inv.savingsDetails.accountType]}</b></div>
+                        )}
+                        <div>ยอดปัจจุบัน: <b className="text-green-700">{formatCurrency(inv.currentValue)}</b></div>
+                      </div>
+                      {inv.notes && <div className="mt-2 text-gray-500 text-[12px]">{inv.notes}</div>}
+                    </div>
+                  )}
+
+                  {/* Dividends */}
+                  {isExpanded && inv.hasDividend && (
+                    <DividendPanel investmentId={inv.id!} dividends={selectedDividends} costBasis={inv.costBasis} />
                   )}
                 </div>
               )
@@ -113,39 +239,60 @@ export default function Investment() {
         <div className="h-4" />
       </div>
 
-      {showForm && <InvestmentForm onClose={() => setShowForm(false)} />}
+      {showForm && (
+        <InvestmentForm
+          editItem={editItem}
+          onClose={() => { setShowForm(false); setEditItem(null) }}
+        />
+      )}
     </div>
   )
 }
 
-function DividendPanel({ investmentId, dividends }: { investmentId: number; dividends: Dividend[] }) {
+function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: number; dividends: Dividend[]; costBasis: number }) {
   const [showAddDiv, setShowAddDiv] = useState(false)
+  const [editDiv, setEditDiv] = useState<Dividend | null>(null)
   const [form, setForm] = useState({ date: '', amountPerShare: '', totalReceived: '' })
 
   const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date))
   const totalReceived = dividends.reduce((s, d) => s + d.totalReceived, 0)
+  const yieldPct = costBasis > 0 ? (totalReceived / costBasis) * 100 : 0
 
-  async function addDividend() {
+  async function saveDividend() {
     if (!form.date || !form.totalReceived) return
-    await db.dividends.add({
+    const data = {
       investmentId,
       date: form.date,
       amountPerShare: parseFloat(form.amountPerShare) || 0,
       totalReceived: parseFloat(form.totalReceived),
-    })
+    }
+    if (editDiv?.id) {
+      await db.dividends.update(editDiv.id, data)
+    } else {
+      await db.dividends.add(data)
+    }
     setForm({ date: '', amountPerShare: '', totalReceived: '' })
     setShowAddDiv(false)
+    setEditDiv(null)
+  }
+
+  function startEdit(d: Dividend) {
+    setEditDiv(d)
+    setForm({ date: d.date, amountPerShare: d.amountPerShare.toString(), totalReceived: d.totalReceived.toString() })
+    setShowAddDiv(true)
   }
 
   return (
     <div className="mx-4 mb-3 bg-indigo-50 rounded-xl p-3">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[12px] font-bold text-indigo-700">ประวัติปันผล</div>
-        <button onClick={() => setShowAddDiv(v => !v)} className="text-[12px] text-indigo-600 font-semibold">＋ เพิ่ม</button>
+        <div className="text-[12px] font-bold text-indigo-700">ประวัติปันผล · Yield {yieldPct.toFixed(1)}%</div>
+        <button onClick={() => { setEditDiv(null); setForm({ date: '', amountPerShare: '', totalReceived: '' }); setShowAddDiv(v => !v) }}
+          className="text-[12px] text-indigo-600 font-semibold">＋ เพิ่ม</button>
       </div>
 
       {showAddDiv && (
         <div className="bg-white rounded-xl p-3 mb-2 flex flex-col gap-2">
+          <div className="text-[12px] font-semibold text-gray-500">{editDiv ? 'แก้ไขปันผล' : 'เพิ่มปันผล'}</div>
           <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
           <input type="number" placeholder="บาท/หุ้น" value={form.amountPerShare}
@@ -154,7 +301,10 @@ function DividendPanel({ investmentId, dividends }: { investmentId: number; divi
           <input type="number" placeholder="ได้รับรวม (บาท)" value={form.totalReceived}
             onChange={e => setForm(v => ({ ...v, totalReceived: e.target.value }))}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
-          <button onClick={addDividend} className="bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold">บันทึก</button>
+          <div className="flex gap-2">
+            <button onClick={saveDividend} className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold">บันทึก</button>
+            <button onClick={() => { setShowAddDiv(false); setEditDiv(null) }} className="px-4 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm">ยกเลิก</button>
+          </div>
         </div>
       )}
 
@@ -162,15 +312,19 @@ function DividendPanel({ investmentId, dividends }: { investmentId: number; divi
         <div className="text-[12px] text-indigo-400 text-center py-2">ยังไม่มีข้อมูลปันผล</div>
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-1 text-[10px] font-bold text-indigo-400 mb-1 px-1">
-            <div>วันที่</div><div className="text-right">บ./หุ้น</div><div className="text-right">ได้รับ</div><div className="text-right">Yield</div>
+          <div className="grid grid-cols-5 gap-1 text-[10px] font-bold text-indigo-400 mb-1 px-1">
+            <div>วันที่</div><div className="text-right">บ./หุ้น</div><div className="text-right">ได้รับ</div><div className="text-right">Yield</div><div></div>
           </div>
           {sorted.slice(0, 6).map(d => (
-            <div key={d.id} className="grid grid-cols-4 gap-1 text-[12px] py-1 border-t border-indigo-100 px-1">
+            <div key={d.id} className="grid grid-cols-5 gap-1 text-[12px] py-1 border-t border-indigo-100 px-1 items-center">
               <div className="text-gray-500">{d.date.slice(5)}</div>
               <div className="text-right font-medium">{d.amountPerShare.toFixed(2)}</div>
               <div className="text-right text-green-600 font-semibold">{formatCurrency(d.totalReceived)}</div>
-              <div className="text-right text-indigo-600">—</div>
+              <div className="text-right text-indigo-600">{costBasis > 0 ? ((d.totalReceived / costBasis) * 100).toFixed(1) + '%' : '—'}</div>
+              <div className="flex gap-1 justify-end">
+                <button onClick={() => startEdit(d)} className="text-[10px] text-indigo-500">✏️</button>
+                <button onClick={() => { if (confirm('ลบปันผลนี้?')) db.dividends.delete(d.id!) }} className="text-[10px] text-red-400">🗑️</button>
+              </div>
             </div>
           ))}
           <div className="mt-2 pt-2 border-t border-indigo-200 flex justify-between text-[12px]">
@@ -183,35 +337,90 @@ function DividendPanel({ investmentId, dividends }: { investmentId: number; divi
   )
 }
 
-function InvestmentForm({ onClose }: { onClose: () => void }) {
-  const [form, setForm] = useState({
-    type: 'thai_stock' as InvestmentType,
-    name: '', ticker: '', costBasis: '', currentValue: '', shares: '', hasDividend: false, currency: 'THB', notes: '',
+function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; onClose: () => void }) {
+  const [form, setForm] = useState<{
+    type: InvestmentType
+    name: string; ticker: string; costBasis: string; currentValue: string; shares: string
+    hasDividend: boolean; currency: string; notes: string
+    insCompany: string
+    insPolicyType: 'life' | 'health' | 'accident' | 'savings_insurance' | 'other'
+    insPaymentFreq: 'monthly' | 'quarterly' | 'annual' | 'lumpsum'
+    insPremium: string; insCoverage: string; insMaturity: string
+    savBank: string
+    savAccountType: 'regular' | 'fixed_deposit' | 'money_market'
+    savInterestRate: string
+  }>({
+    type: (editItem?.type ?? 'thai_stock') as InvestmentType,
+    name: editItem?.name ?? '',
+    ticker: editItem?.ticker ?? '',
+    costBasis: editItem?.costBasis?.toString() ?? '',
+    currentValue: editItem?.currentValue?.toString() ?? '',
+    shares: editItem?.shares?.toString() ?? '',
+    hasDividend: editItem?.hasDividend ?? false,
+    currency: editItem?.currency ?? 'THB',
+    notes: editItem?.notes ?? '',
+    insCompany: editItem?.insuranceDetails?.company ?? '',
+    insPolicyType: (editItem?.insuranceDetails?.policyType ?? 'life') as 'life',
+    insPaymentFreq: (editItem?.insuranceDetails?.paymentFrequency ?? 'annual') as 'annual',
+    insPremium: editItem?.insuranceDetails?.premiumAmount?.toString() ?? '',
+    insCoverage: editItem?.insuranceDetails?.coverageAmount?.toString() ?? '',
+    insMaturity: editItem?.insuranceDetails?.maturityDate ?? '',
+    savBank: editItem?.savingsDetails?.bankName ?? '',
+    savAccountType: (editItem?.savingsDetails?.accountType ?? 'regular') as 'regular',
+    savInterestRate: editItem?.savingsDetails?.interestRate?.toString() ?? '',
   })
 
   async function save() {
-    if (!form.name || !form.costBasis || !form.currentValue) return
-    await db.investments.add({
+    if (!form.name) return
+
+    const insuranceDetails: InsuranceDetails | undefined = form.type === 'insurance' ? {
+      company: form.insCompany || undefined,
+      policyType: form.insPolicyType as InsuranceDetails['policyType'],
+      paymentFrequency: form.insPaymentFreq as InsuranceDetails['paymentFrequency'],
+      premiumAmount: form.insPremium ? parseFloat(form.insPremium) : undefined,
+      coverageAmount: form.insCoverage ? parseFloat(form.insCoverage) : undefined,
+      maturityDate: form.insMaturity || undefined,
+    } : undefined
+
+    const savingsDetails: SavingsDetails | undefined = form.type === 'savings' ? {
+      bankName: form.savBank || undefined,
+      accountType: form.savAccountType as SavingsDetails['accountType'],
+      interestRate: form.savInterestRate ? parseFloat(form.savInterestRate) : undefined,
+    } : undefined
+
+    const data: Omit<Investment, 'id'> = {
       type: form.type,
       name: form.name,
       ticker: form.ticker || undefined,
-      costBasis: parseFloat(form.costBasis),
-      currentValue: parseFloat(form.currentValue),
+      costBasis: parseFloat(form.costBasis) || 0,
+      currentValue: parseFloat(form.currentValue) || 0,
       shares: form.shares ? parseFloat(form.shares) : undefined,
       hasDividend: form.hasDividend,
       currency: form.currency as 'THB' | 'USD' | 'OTHER',
       notes: form.notes || undefined,
-      createdAt: new Date().toISOString(),
+      insuranceDetails,
+      savingsDetails,
+      createdAt: editItem?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })
+    }
+
+    if (editItem?.id) {
+      await db.investments.update(editItem.id, data)
+    } else {
+      await db.investments.add(data)
+    }
     onClose()
   }
 
+  const isInsurance = form.type === 'insurance'
+  const isSavings = form.type === 'savings'
+  const isStock = form.type === 'thai_stock' || form.type === 'foreign_stock' || form.type === 'fund'
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-900">เพิ่มการลงทุน</h3>
+          <h3 className="text-lg font-bold text-gray-900">{editItem ? 'แก้ไข' : 'เพิ่ม'}การลงทุน</h3>
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
 
@@ -219,31 +428,124 @@ function InvestmentForm({ onClose }: { onClose: () => void }) {
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full">
           {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <input placeholder="ชื่อ (เช่น CPALL, S&P500 ETF)" value={form.name}
-          onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
+
+        <input placeholder={isInsurance ? 'ชื่อกรมธรรม์' : isSavings ? 'ชื่อบัญชี' : 'ชื่อ (เช่น CPALL, S&P500 ETF)'}
+          value={form.name} onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <input placeholder="Ticker (ไม่บังคับ)" value={form.ticker}
-          onChange={e => setForm(v => ({ ...v, ticker: e.target.value }))}
+
+        {/* Insurance-specific fields */}
+        {isInsurance && (
+          <>
+            <div className="text-[12px] font-bold text-indigo-600 -mb-1">ข้อมูลประกัน</div>
+            <input placeholder="บริษัทประกัน" value={form.insCompany}
+              onChange={e => setForm(v => ({ ...v, insCompany: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={form.insPolicyType} onChange={e => setForm(v => ({ ...v, insPolicyType: e.target.value as 'life' | 'health' | 'accident' | 'savings_insurance' | 'other' }))}
+                className="border border-gray-200 rounded-xl px-3 py-3 text-sm">
+                <option value="life">ประกันชีวิต</option>
+                <option value="health">ประกันสุขภาพ</option>
+                <option value="accident">ประกันอุบัติเหตุ</option>
+                <option value="savings_insurance">ประกันออมทรัพย์</option>
+                <option value="other">อื่นๆ</option>
+              </select>
+              <select value={form.insPaymentFreq} onChange={e => setForm(v => ({ ...v, insPaymentFreq: e.target.value as 'monthly' | 'quarterly' | 'annual' | 'lumpsum' }))}
+                className="border border-gray-200 rounded-xl px-3 py-3 text-sm">
+                <option value="monthly">รายเดือน</option>
+                <option value="quarterly">ราย 3 เดือน</option>
+                <option value="annual">รายปี</option>
+                <option value="lumpsum">ครั้งเดียว</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="number" placeholder="เบี้ยประกัน (บาท)" value={form.insPremium}
+                onChange={e => setForm(v => ({ ...v, insPremium: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+              <input type="number" placeholder="ทุนประกัน (บาท)" value={form.insCoverage}
+                onChange={e => setForm(v => ({ ...v, insCoverage: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+            </div>
+            <div>
+              <div className="text-[12px] text-gray-500 mb-1">วันครบกำหนดกรมธรรม์</div>
+              <input type="date" value={form.insMaturity}
+                onChange={e => setForm(v => ({ ...v, insMaturity: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            </div>
+            <div className="text-[12px] font-bold text-indigo-600 -mb-1">ต้นทุนรวมที่จ่ายไปแล้ว</div>
+            <input type="number" placeholder="ต้นทุนรวม (บาท)" value={form.costBasis}
+              onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+          </>
+        )}
+
+        {/* Savings-specific fields */}
+        {isSavings && (
+          <>
+            <div className="text-[12px] font-bold text-green-600 -mb-1">ข้อมูลบัญชีเงินฝาก</div>
+            <input placeholder="ธนาคาร (เช่น กสิกร, กรุงเทพ)" value={form.savBank}
+              onChange={e => setForm(v => ({ ...v, savBank: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={form.savAccountType} onChange={e => setForm(v => ({ ...v, savAccountType: e.target.value as 'regular' | 'fixed_deposit' | 'money_market' }))}
+                className="border border-gray-200 rounded-xl px-3 py-3 text-sm">
+                <option value="regular">ออมทรัพย์</option>
+                <option value="fixed_deposit">ฝากประจำ</option>
+                <option value="money_market">Money Market</option>
+              </select>
+              <input type="number" placeholder="ดอกเบี้ย %/ปี" value={form.savInterestRate}
+                onChange={e => setForm(v => ({ ...v, savInterestRate: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+            </div>
+            <div className="text-[12px] font-bold text-green-600 -mb-1">ยอดเงินปัจจุบัน</div>
+            <input type="number" placeholder="ยอดเงิน (บาท)" value={form.currentValue}
+              onChange={e => setForm(v => ({ ...v, currentValue: e.target.value, costBasis: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+          </>
+        )}
+
+        {/* Stock/fund fields */}
+        {isStock && (
+          <>
+            <input placeholder="Ticker (เช่น CPALL.BK, QQQ)" value={form.ticker}
+              onChange={e => setForm(v => ({ ...v, ticker: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="grid grid-cols-2 gap-2">
+              <input type="number" placeholder="ต้นทุน (บาท)" value={form.costBasis}
+                onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+              <input type="number" placeholder="มูลค่าตอนนี้" value={form.currentValue}
+                onChange={e => setForm(v => ({ ...v, currentValue: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+            </div>
+            <input type="number" placeholder="จำนวนหุ้น/หน่วย (สำหรับ auto sync)" value={form.shares}
+              onChange={e => setForm(v => ({ ...v, shares: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <label className="flex items-center gap-3 px-1">
+              <input type="checkbox" checked={form.hasDividend} onChange={e => setForm(v => ({ ...v, hasDividend: e.target.checked }))}
+                className="w-5 h-5 rounded accent-indigo-600" />
+              <span className="text-sm font-medium text-gray-700">มีปันผล</span>
+            </label>
+          </>
+        )}
+
+        {/* Other type */}
+        {form.type === 'other' && (
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" placeholder="ต้นทุน (บาท)" value={form.costBasis}
+              onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+            <input type="number" placeholder="มูลค่าตอนนี้" value={form.currentValue}
+              onChange={e => setForm(v => ({ ...v, currentValue: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+          </div>
+        )}
+
+        <input placeholder="หมายเหตุ (ไม่บังคับ)" value={form.notes}
+          onChange={e => setForm(v => ({ ...v, notes: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <div className="grid grid-cols-2 gap-2">
-          <input type="number" placeholder="ต้นทุน (บาท)" value={form.costBasis}
-            onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
-          <input type="number" placeholder="มูลค่าตอนนี้" value={form.currentValue}
-            onChange={e => setForm(v => ({ ...v, currentValue: e.target.value }))}
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
-        </div>
-        <input type="number" placeholder="จำนวนหุ้น/หน่วย (ไม่บังคับ)" value={form.shares}
-          onChange={e => setForm(v => ({ ...v, shares: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <label className="flex items-center gap-3 px-1">
-          <input type="checkbox" checked={form.hasDividend} onChange={e => setForm(v => ({ ...v, hasDividend: e.target.checked }))}
-            className="w-5 h-5 rounded accent-indigo-600" />
-          <span className="text-sm font-medium text-gray-700">มีปันผล</span>
-        </label>
 
         <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
-          บันทึก
+          {editItem ? 'บันทึกการแก้ไข' : 'บันทึก'}
         </button>
       </div>
     </div>
