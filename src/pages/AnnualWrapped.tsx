@@ -45,7 +45,7 @@ export default function AnnualWrapped() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-gray-950">
       <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 pt-[calc(env(safe-area-inset-top)+16px)]">
-        <button onClick={() => navigate(-1)} className="text-white/60 text-sm">← กลับ</button>
+        <button onClick={() => navigate("/")} className="text-white/60 text-sm">← กลับ</button>
         <div className="text-white font-bold text-lg">ปี {year} ของคุณ 🎉</div>
         <div className="w-12" />
       </div>

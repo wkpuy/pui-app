@@ -30,7 +30,7 @@ export default function ShortcutsGuide() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <header className="flex-shrink-0 flex items-center gap-2 px-5 py-3 bg-white border-b border-gray-100 pt-[calc(env(safe-area-inset-top)+12px)]">
-        <button onClick={() => navigate(-1)} className="text-indigo-600 font-medium text-sm">← กลับ</button>
+        <button onClick={() => navigate("/")} className="text-indigo-600 font-medium text-sm">← กลับ</button>
         <h1 className="text-[17px] font-bold text-gray-900">วิธีใช้ iOS Shortcuts</h1>
       </header>
 

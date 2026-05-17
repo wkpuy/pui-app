@@ -22,7 +22,7 @@ export default function BottomNav() {
           return (
             <button
               key={tab.path}
-              onClick={() => navigate(tab.path)}
+              onClick={() => navigate(tab.path, { replace: true })}
               className="flex-1 flex flex-col items-center py-2 gap-0.5 min-h-[52px]"
             >
               <span className="text-lg leading-none">{tab.icon}</span>

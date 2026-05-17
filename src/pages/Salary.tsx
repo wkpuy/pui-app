@@ -53,7 +53,7 @@ export default function Salary() {
     <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
       {/* Header */}
       <div className="bg-white flex items-center gap-3 px-4 py-4 border-b border-gray-100">
-        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95">
+        <button onClick={() => navigate('/')} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95">
           ‹
         </button>
         <div className="flex-1 text-[17px] font-bold text-gray-900">เงินเดือน & ความก้าวหน้า</div>
