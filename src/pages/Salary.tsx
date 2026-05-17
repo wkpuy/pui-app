@@ -151,13 +151,29 @@ export default function Salary() {
                       <span>จำนวนปีที่คาดการณ์</span>
                       <span className="text-indigo-600">{projYears} ปี</span>
                     </div>
-                    <input type="range" min={5} max={30} step={5} value={projYears}
+                    <input type="range" min={1} max={35} step={1} value={projYears}
                       onChange={e => setProjYears(parseInt(e.target.value))}
                       className="w-full accent-indigo-600" />
                   </div>
                 </div>
               </Card>
             </div>
+
+            {/* PVD cumulative summary */}
+            {projectionRows.length > 0 && (() => {
+              const totalPvd = projectionRows.reduce((s, r) => s + r.pvdTotal, 0)
+              return (
+                <div className="mx-4 mb-3">
+                  <div className="bg-indigo-50 rounded-2xl px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-[12px] text-indigo-600 font-semibold">PVD สะสมรวม {projYears} ปี</div>
+                      <div className="text-[11px] text-indigo-400 mt-0.5">พนักงาน + บริษัทสมทบ (ไม่รวมผลตอบแทน)</div>
+                    </div>
+                    <div className="text-[20px] font-bold text-indigo-700">{formatCurrency(totalPvd, 0)}</div>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Projection table */}
             <div className="mx-4 mt-3 mb-4">

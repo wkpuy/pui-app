@@ -204,8 +204,8 @@ export default function Condo() {
                     <div className="text-[10px] font-bold text-gray-500 text-right">คงเหลือ</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
-                    {rows.map((row, idx) => {
-                      const extraForRow = monthlyExtras[row.month] ?? condo?.monthlyExtra ?? 0
+                    {(extraSim > 0 ? rowsSim : rows).map((row, idx) => {
+                      const extraForRow = (monthlyExtras[row.month] ?? condo?.monthlyExtra ?? 0) + (extraSim > 0 ? extraSim : 0)
                       const isEditing = editingMonth === row.month
                       return (
                         <div key={row.month}
