@@ -44,24 +44,39 @@ export default function Investment() {
     if (stockInvs.length === 0) return
     if (!silent) setSyncing(true)
     try {
-      const tickers = stockInvs.map(i => i.ticker!)
-      const prices = await fetchStockPrices(tickers)
-      for (const inv of stockInvs) {
-        const price = prices[inv.ticker!]
+      // Thai stocks need .BK suffix for Yahoo Finance
+      const invWithApiTicker = stockInvs.map(inv => ({
+        inv,
+        apiTicker: inv.type === 'thai_stock' && inv.ticker && !inv.ticker.includes('.')
+          ? inv.ticker + '.BK'
+          : inv.ticker!,
+      }))
+      const prices = await fetchStockPrices(invWithApiTicker.map(x => x.apiTicker))
+      let updatedCount = 0
+      for (const { inv, apiTicker } of invWithApiTicker) {
+        const price = prices[apiTicker]
         if (price && inv.shares) {
           await db.investments.update(inv.id!, {
             currentValue: parseFloat((price * inv.shares).toFixed(2)),
             updatedAt: new Date().toISOString(),
           })
+          updatedCount++
         } else if (price && !inv.shares) {
           await db.investments.update(inv.id!, {
             currentValue: price,
             updatedAt: new Date().toISOString(),
           })
+          updatedCount++
         }
       }
       setLastSync(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }))
-      if (!silent) setToastMsg({ text: 'อัพเดทราคาสำเร็จ', type: 'success' })
+      if (!silent) {
+        if (updatedCount > 0) {
+          setToastMsg({ text: `อัพเดทราคา ${updatedCount} รายการสำเร็จ`, type: 'success' })
+        } else {
+          setToastMsg({ text: 'ไม่พบข้อมูลราคา — ตรวจสอบ Ticker อีกครั้ง', type: 'error' })
+        }
+      }
     } catch {
       if (!silent) setToastMsg({ text: 'ไม่สามารถโหลดราคาได้', type: 'error' })
     } finally {

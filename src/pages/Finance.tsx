@@ -182,19 +182,29 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
     try {
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
       const messages = await fetchGmailBankMessages(tokens.accessToken)
-      const parsed = messages.map(parseBankEmail)
-
-      for (const txn of parsed) {
+      let added = 0, skipped = 0
+      for (const msg of messages) {
+        const txn = parseBankEmail(msg)
+        if (!txn.rawRef || txn.amount <= 0) continue
+        const exists = await db.financeRecords.where('rawRef').equals(txn.rawRef).count()
+        if (exists > 0) { skipped++; continue }
         await db.financeRecords.add({
           date: txn.date,
           amount: txn.amount,
-          type: txn.type,
-          category: txn.type === 'income' ? 'อื่นๆ' : 'เดินทาง',
+          type: txn.type as 'income' | 'expense',
+          category: txn.type === 'income' ? 'โอนเข้า' : 'โอนออก',
           description: txn.description,
-          note: `[${txn.source}]`,
-        } as any)
+          source: txn.source as any,
+          rawRef: txn.rawRef,
+        })
+        added++
       }
-      setToast({ text: `บันทึก ${parsed.length} รายการจาก Gmail`, type: 'success' })
+      setToast({
+        text: added > 0
+          ? `เพิ่ม ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`
+          : skipped > 0 ? `ไม่มีรายการใหม่ (${skipped} รายการซ้ำ)` : 'ไม่พบรายการจากธนาคาร',
+        type: added > 0 ? 'success' : 'error',
+      })
     } catch (e: any) {
       setToast({ text: e.message ?? 'ไม่สามารถอ่าน Gmail ได้', type: 'error' })
     } finally {
@@ -228,19 +238,23 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
   async function saveImport() {
     if (!importState) return
     const toSave = importState.txns.filter((_, i) => importState.selected[i])
-    for (const txn of toSave) {
-      await db.financeRecords.add({
-        date: txn.transDate,
-        amount: Math.abs(txn.amount),
-        type: txn.amount < 0 ? 'income' : 'expense',
-        category: txn.amount < 0 ? 'อื่นๆ' : txn.category,
-        description: txn.description,
-        note: `[${txn.bankName}${txn.cardType ? ' ' + txn.cardType : ''}]`,
-        rawRef: importState.file.id,
-      } as any)
+    try {
+      for (const txn of toSave) {
+        await db.financeRecords.add({
+          date: txn.transDate,
+          amount: Math.abs(txn.amount),
+          type: txn.amount < 0 ? 'income' : 'expense',
+          category: txn.amount < 0 ? 'อื่นๆ' : txn.category,
+          description: txn.description,
+          source: 'credit_card',
+          rawRef: importState.file.id,
+        })
+      }
+      setImportState(null)
+      setToast({ text: `บันทึก ${toSave.length} รายการแล้ว`, type: 'success' })
+    } catch (e: any) {
+      setToast({ text: e.message ?? 'บันทึกไม่สำเร็จ', type: 'error' })
     }
-    setImportState(null)
-    setToast({ text: `บันทึก ${toSave.length} รายการแล้ว`, type: 'success' })
   }
 
   const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']

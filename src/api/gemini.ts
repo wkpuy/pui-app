@@ -13,7 +13,7 @@ export async function chatWithCoach(
   if (!genAI) throw new Error('Gemini API key not configured')
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-1.5-flash',
     systemInstruction: systemContext,
   })
 
@@ -25,7 +25,7 @@ export async function chatWithCoach(
 
 export async function analyzePatterns(context: string): Promise<string> {
   if (!genAI) return ''
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
   const result = await model.generateContent(context)
   return result.response.text()
 }

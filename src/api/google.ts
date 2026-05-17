@@ -131,7 +131,7 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
 // sinceDate: YYYY/MM/DD (Gmail format). If omitted → 48h back (for auto-sync).
 export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
   const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 48 * 3600 * 1000)}`
-  const query = encodeURIComponent(`from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th) subject:(โอนเงิน OR หักบัญชี OR รายการ) ${timeFilter}`)
+  const query = encodeURIComponent(`from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th OR bbl.co.th OR scb.co.th) ${timeFilter}`)
   const res = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=100`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
