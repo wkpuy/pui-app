@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
 import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
+import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, fetchWhoopData, getValidTokens, saveWhoopTokens } from '../api/whoop'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -18,11 +19,14 @@ export default function Settings() {
   const [syncStatus, setSyncStatus] = useState('')
   const [driveBackup, setDriveBackup] = useState<{ id: string; modifiedTime: string } | null>(null)
   const [syncMonths, setSyncMonths] = useState(1)
+  const [whoopConnected, setWhoopConnected] = useState(false)
+  const [whoopSyncing, setWhoopSyncing] = useState(false)
 
   useEffect(() => {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
     if (settings?.geminiApiKey) setGeminiKey(settings.geminiApiKey)
     if (settings?.googleClientId) setGoogleClientId(settings.googleClientId)
+    setWhoopConnected(!!loadWhoopTokens())
   }, [profile, settings])
 
   async function saveProfile() {
@@ -92,22 +96,60 @@ export default function Settings() {
     }
   }
 
-  async function importAppleHealth(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const connectWhoop = useCallback(() => {
+    window.location.href = getWhoopAuthUrl()
+  }, [])
+
+  const disconnectWhoop = useCallback(() => {
+    clearWhoopTokens()
+    setWhoopConnected(false)
+    setSyncStatus('ยกเลิกการเชื่อมต่อ WHOOP แล้ว')
+  }, [])
+
+  const syncWhoop = useCallback(async () => {
+    const tokens = loadWhoopTokens()
+    if (!tokens) { setSyncStatus('❌ ยังไม่ได้เชื่อมต่อ WHOOP'); return }
+    setWhoopSyncing(true)
+    setSyncStatus('กำลัง sync WHOOP...')
     try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-      // Expect array of HealthDaily objects
-      if (Array.isArray(data)) {
-        await db.healthDaily.bulkAdd(data.map((d: any) => ({ ...d, source: 'apple_health', id: undefined })))
-        setSyncStatus(`✓ Import Apple Health: ${data.length} วัน`)
+      const valid = await getValidTokens(tokens)
+      saveWhoopTokens(valid)
+      const records = await fetchWhoopData(valid, 30)
+      let added = 0, updated = 0
+      for (const r of records) {
+        const existing = await db.healthDaily.where('date').equals(r.date).first()
+        const payload = {
+          date: r.date,
+          recoveryScore: r.recoveryScore,
+          hrv: r.hrv,
+          restingHeartRate: r.restingHeartRate,
+          sleepTotal: r.sleepTotal,
+          sleepDeep: r.sleepDeep,
+          sleepRem: r.sleepRem,
+          sleepLight: r.sleepLight,
+          sleepPerformance: r.sleepPerformance,
+          respiratoryRate: r.respiratoryRate,
+          strain: r.strain,
+          caloriesBurned: r.caloriesBurned,
+          bloodOxygen: r.bloodOxygen,
+          source: 'whoop',
+        }
+        if (existing) {
+          await db.healthDaily.update(existing.id!, { ...payload, id: undefined })
+          updated++
+        } else {
+          await db.healthDaily.add(payload)
+          added++
+        }
       }
-    } catch {
-      setSyncStatus('❌ ไฟล์ไม่ถูกต้อง')
+      await db.syncLog.add({ source: 'whoop', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} ใหม่, ${updated} อัปเดต` })
+      setSyncStatus(`✅ WHOOP: +${added} วันใหม่${updated > 0 ? `, อัปเดต ${updated}` : ''}`)
+    } catch (e: any) {
+      setSyncStatus(`❌ WHOOP sync ล้มเหลว: ${e.message}`)
+    } finally {
+      setWhoopSyncing(false)
     }
-    await db.syncLog.add({ source: 'apple_health', lastSyncAt: new Date().toISOString(), status: 'success' })
-  }
+  }, [])
 
   async function exportData() {
     const data = {
@@ -316,21 +358,41 @@ export default function Settings() {
           </Card>
         </div>
 
-        {/* Apple Health */}
-        <SectionLabel>Apple Health / WHOOP</SectionLabel>
+        {/* WHOOP */}
+        <SectionLabel>WHOOP</SectionLabel>
         <div className="mx-4">
           <Card className="!bg-gray-50">
-            <div className="text-[13px] font-semibold text-gray-700 mb-2">Import ข้อมูลสุขภาพ</div>
-            <div className="text-[12px] text-gray-500 mb-3">
-              ใช้ iOS Shortcuts export JSON จาก Apple Health แล้ว import ที่นี่
-            </div>
-            <label className="bg-gray-800 text-white font-semibold text-sm py-2.5 px-4 rounded-xl active:scale-95 cursor-pointer block text-center">
-              📱 เลือกไฟล์ Apple Health JSON
-              <input type="file" accept=".json" onChange={importAppleHealth} className="hidden" />
-            </label>
-            <button onClick={() => navigate('/shortcuts-guide')} className="text-indigo-600 text-[12px] font-medium mt-2 w-full text-center">
-              วิธีสร้าง iOS Shortcut →
-            </button>
+            {whoopConnected ? (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <div className="text-[13px] font-semibold text-gray-800">เชื่อมต่อ WHOOP แล้ว</div>
+                </div>
+                <button
+                  onClick={syncWhoop}
+                  disabled={whoopSyncing}
+                  className="w-full bg-black text-white font-semibold py-2.5 rounded-xl text-sm active:scale-95 disabled:opacity-50 mb-2"
+                >
+                  {whoopSyncing ? '⏳ กำลัง sync...' : '🔄 Sync WHOOP (30 วันล่าสุด)'}
+                </button>
+                <button onClick={disconnectWhoop} className="text-red-500 text-[12px] font-medium w-full text-center">
+                  ยกเลิกการเชื่อมต่อ
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-[13px] font-semibold text-gray-700 mb-1">เชื่อมต่อ WHOOP</div>
+                <div className="text-[12px] text-gray-500 mb-3">
+                  ดึงข้อมูล Recovery, Sleep, HRV, Strain จาก WHOOP โดยตรง
+                </div>
+                <button
+                  onClick={connectWhoop}
+                  className="w-full bg-black text-white font-semibold py-2.5 rounded-xl text-sm active:scale-95"
+                >
+                  🔗 Connect WHOOP
+                </button>
+              </>
+            )}
           </Card>
         </div>
 

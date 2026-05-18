@@ -133,6 +133,14 @@ export interface HealthDaily {
   caloriesBurned?: number
   vo2max?: number
   activeMinutes?: number
+  // WHOOP fields
+  recoveryScore?: number
+  hrv?: number
+  restingHeartRate?: number
+  sleepPerformance?: number
+  respiratoryRate?: number
+  strain?: number
+  bloodOxygen?: number
   source?: string
 }
 
@@ -224,7 +232,7 @@ export interface GoogleTokens {
 
 export interface SyncLog {
   id?: number
-  source: 'calendar' | 'gmail' | 'drive' | 'apple_health'
+  source: 'calendar' | 'gmail' | 'drive' | 'whoop'
   lastSyncAt: string
   status: 'success' | 'error'
   notes?: string
