@@ -101,15 +101,16 @@ function toDateStr(isoStr: string): string {
   return isoStr.slice(0, 10)
 }
 
-export async function fetchWhoopData(tokens: WhoopTokens, days = 7): Promise<WhoopDailyData[]> {
+export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<WhoopDailyData[]> {
   const start = new Date()
   start.setDate(start.getDate() - days)
   const startStr = start.toISOString()
+  const limit = Math.min(days + 5, 100)
 
   const [recoveries, sleeps, cycles] = await Promise.all([
-    apiGet(`/recovery/?start=${startStr}&limit=25`, tokens),
-    apiGet(`/activity/sleep/?start=${startStr}&limit=25`, tokens),
-    apiGet(`/cycle/?start=${startStr}&limit=25`, tokens),
+    apiGet(`/recovery/?start=${startStr}&limit=${limit}`, tokens),
+    apiGet(`/activity/sleep/?start=${startStr}&limit=${limit}`, tokens),
+    apiGet(`/cycle/?start=${startStr}&limit=${limit}`, tokens),
   ])
 
   const map = new Map<string, WhoopDailyData>()

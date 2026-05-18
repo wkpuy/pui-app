@@ -114,7 +114,7 @@ export default function Settings() {
     try {
       const valid = await getValidTokens(tokens)
       saveWhoopTokens(valid)
-      const records = await fetchWhoopData(valid, 30)
+      const records = await fetchWhoopData(valid, 90)
       let added = 0, updated = 0
       for (const r of records) {
         const existing = await db.healthDaily.where('date').equals(r.date).first()
@@ -373,7 +373,7 @@ export default function Settings() {
                   disabled={whoopSyncing}
                   className="w-full bg-black text-white font-semibold py-2.5 rounded-xl text-sm active:scale-95 disabled:opacity-50 mb-2"
                 >
-                  {whoopSyncing ? '⏳ กำลัง sync...' : '🔄 Sync WHOOP (30 วันล่าสุด)'}
+                  {whoopSyncing ? '⏳ กำลัง sync...' : '🔄 Sync WHOOP (90 วันล่าสุด)'}
                 </button>
                 <button onClick={disconnectWhoop} className="text-red-500 text-[12px] font-medium w-full text-center">
                   ยกเลิกการเชื่อมต่อ
