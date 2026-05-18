@@ -21,6 +21,7 @@ export default function Settings() {
   const [syncMonths, setSyncMonths] = useState(1)
   const [whoopConnected, setWhoopConnected] = useState(false)
   const [whoopSyncing, setWhoopSyncing] = useState(false)
+  const [whoopResult, setWhoopResult] = useState<{ text: string; ok: boolean } | null>(null)
 
   useEffect(() => {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
@@ -144,14 +145,14 @@ export default function Settings() {
       }
       await db.syncLog.add({ source: 'whoop', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} ใหม่, ${updated} อัปเดต` })
       if (records.length === 0) {
-        setSyncStatus('⚠️ WHOOP: ไม่มีข้อมูลจาก API (ลอง sync ใหม่อีกครั้ง)')
+        setWhoopResult({ text: '⚠️ ไม่มีข้อมูลจาก API ลอง sync ใหม่อีกครั้ง', ok: false })
       } else if (added === 0 && updated === 0) {
-        setSyncStatus(`ℹ️ WHOOP: ข้อมูลเป็นปัจจุบันแล้ว (พบ ${records.length} วัน ไม่มีรายการใหม่)`)
+        setWhoopResult({ text: `ℹ️ ข้อมูลเป็นปัจจุบันแล้ว (พบ ${records.length} วัน)`, ok: true })
       } else {
-        setSyncStatus(`✅ WHOOP: +${added} วันใหม่${updated > 0 ? `, อัปเดต ${updated}` : ''} (จาก ${records.length} วัน)`)
+        setWhoopResult({ text: `✅ +${added} วันใหม่${updated > 0 ? ` อัปเดต ${updated}` : ''} จาก ${records.length} วัน`, ok: true })
       }
     } catch (e: any) {
-      setSyncStatus(`❌ WHOOP sync ล้มเหลว: ${e.message}`)
+      setWhoopResult({ text: `❌ sync ล้มเหลว: ${e.message}`, ok: false })
     } finally {
       setWhoopSyncing(false)
     }
@@ -381,6 +382,11 @@ export default function Settings() {
                 >
                   {whoopSyncing ? '⏳ กำลัง sync...' : '🔄 Sync WHOOP (90 วันล่าสุด)'}
                 </button>
+                {whoopResult && (
+                  <div className={`text-[12px] font-medium px-3 py-2 rounded-xl mb-2 ${whoopResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                    {whoopResult.text}
+                  </div>
+                )}
                 <button onClick={disconnectWhoop} className="text-red-500 text-[12px] font-medium w-full text-center">
                   ยกเลิกการเชื่อมต่อ
                 </button>
