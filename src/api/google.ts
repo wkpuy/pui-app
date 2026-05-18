@@ -67,7 +67,10 @@ export async function fetchCalendarEvents(accessToken: string, timeMinIso?: stri
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
+  if (res.status === 401) throw new Error('TOKEN_EXPIRED')
+  if (!res.ok) throw new Error(`Google Calendar error: ${res.status}`)
   const data = await res.json()
+  if (data.error) throw new Error(data.error.message ?? 'Google Calendar error')
   return data.items || []
 }
 

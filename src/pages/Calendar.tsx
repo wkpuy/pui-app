@@ -35,6 +35,7 @@ export default function Calendar() {
   const [dividendEvents, setDividendEvents] = useState<ParsedDividendEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tokenExpired, setTokenExpired] = useState(false)
   const [viewDate, setViewDate] = useState(new Date())
   const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set())
   const [syncing, setSyncing] = useState<string | null>(null)
@@ -54,6 +55,7 @@ export default function Calendar() {
     if (!tokens?.accessToken) return
     setLoading(true)
     setError(null)
+    setTokenExpired(false)
     try {
       const startOfMonth = new Date(year, month, 1)
       const endOfMonth = new Date(year, month + 1, 0)
@@ -61,7 +63,11 @@ export default function Calendar() {
       setEvents(raw)
       setDividendEvents(parseDividendEvents(raw))
     } catch (e: any) {
-      setError(e.message ?? 'ไม่สามารถโหลดปฏิทินได้')
+      if (e.message === 'TOKEN_EXPIRED') {
+        setTokenExpired(true)
+      } else {
+        setError(e.message ?? 'ไม่สามารถโหลดปฏิทินได้')
+      }
     } finally {
       setLoading(false)
     }
@@ -161,7 +167,17 @@ export default function Calendar() {
               <div className="text-[16px] font-bold text-gray-900">
                 {THAI_MONTHS[month]} {year + 543}
               </div>
-              <button onClick={nextMonth} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95 text-lg">›</button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadEvents}
+                  disabled={loading}
+                  className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95 text-base disabled:opacity-50"
+                  title="รีเฟรช"
+                >
+                  {loading ? '⏳' : '🔄'}
+                </button>
+                <button onClick={nextMonth} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95 text-lg">›</button>
+              </div>
             </div>
 
             {/* Calendar grid */}
@@ -204,7 +220,20 @@ export default function Calendar() {
             </div>
 
             {loading && <div className="text-center py-4 text-[13px] text-indigo-500">⏳ กำลังโหลด...</div>}
-            {error && <div className="mx-4 mt-3 bg-red-50 rounded-xl p-3 text-[13px] text-red-600">{error}</div>}
+            {error && <div className="mx-4 mt-3 bg-red-50 rounded-xl p-3 text-[13px] text-red-600">❌ {error}</div>}
+            {tokenExpired && (
+              <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Session หมดอายุ</div>
+                <div className="text-[13px] text-amber-700 mb-3">Token Google หมดอายุแล้ว (มีอายุแค่ 1 ชั่วโมง) กรุณาเชื่อมต่อใหม่ใน Settings</div>
+                <a
+                  href="#settings"
+                  onClick={() => window.location.hash = ''}
+                  className="inline-block bg-amber-600 text-white text-[13px] font-bold px-4 py-2 rounded-xl active:scale-95"
+                >
+                  ไปที่ Settings →
+                </a>
+              </div>
+            )}
 
             {/* Selected day events */}
             {selectedDay && (
