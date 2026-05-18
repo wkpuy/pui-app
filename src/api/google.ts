@@ -138,7 +138,7 @@ export async function fetchGmailBankMessages(accessToken: string, sinceDate?: st
   const query = encodeURIComponent(
     `(from:(kasikornbank.com OR bangkokbank.com)` +
     ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"` +
-    ` OR "แจ้งผลการทำรายการโอนเงิน" OR "แจ้งผลการทำรายการชำระเงิน" OR "แจ้งผลการทำรายการ"` +
+    ` OR "แจ้งผลการทำรายการโอนเงิน" OR "แจ้งผลการทำรายการชำระเงิน" OR "แจ้งผลการทำรายการ" OR "แจ้งผลการทำรายการชำระค่าสินค้า"` +
     ` OR "ยืนยันการชำระเงิน" OR "ยืนยันการโอนเงิน" OR "ยืนยันการเติมเงิน"))` +
     ` ${timeFilter}`
   )
@@ -261,11 +261,17 @@ export function parseBankEmail(message: any) {
     const refMatch = body.match(/เลขที่รายการ\s*[:\s]\s*([A-Z0-9]{6,30})/i)
     if (refMatch) rawRef = `kbank_${refMatch[1]}`
 
-    // Description: ชื่อบัญชี → stop before next label (จำนวนเงิน / ค่าธรรมเนียม / ยอด)
-    const nameMatch = body.match(/ชื่อบัญชี\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด|เลขที่|วันที่))/)
-                   ?? body.match(/ชื่อผู้รับเงิน\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด))/)
-                   ?? body.match(/เพื่อเข้าบัญชีบริษัท\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ชื่อบัญชี|ค่าธรรมเนียม))/)
-                   ?? body.match(/ชำระให้\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด))/)
+    // Description — stop before any of these next-field labels
+    const KSTOP = '(?=\\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด|เลขที่|วันที่|ธนาคาร|ให้รหัส|โอนเงิน|ชำระเงิน))'
+    const nameMatch =
+      // "ชื่อบัญชี: น.ส. รักชนก จันทรวงศ์"  (regular transfer)
+      body.match(new RegExp(`ชื่อบัญชี\\s*[:\\s]\\s*(.+?)${KSTOP}`))
+      // "ชื่อผู้รับเงิน: นาย เกษม โพธิ์วาดี"  (PromptPay transfer)
+   ?? body.match(new RegExp(`ชื่อผู้รับเงิน\\s*[:\\s]\\s*(.+?)${KSTOP}`))
+      // "เพื่อเข้าบัญชีบริษัท: บริษัท ทรู มันนี่ จำกัด"  (bill payment)
+   ?? body.match(new RegExp(`เพื่อเข้าบัญชีบริษัท\\s*[:\\s]\\s*(.+?)${KSTOP}`))
+      // "ชำระให้: ..."  (other bill formats)
+   ?? body.match(new RegExp(`ชำระให้\\s*[:\\s]\\s*(.+?)${KSTOP}`))
     if (nameMatch) description = nameMatch[1].trim()
 
   // ── Bangkok Bank (BualuangmBanking@bangkokbank.com) ─────────────
