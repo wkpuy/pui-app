@@ -1,8 +1,10 @@
-// Use legacy build for maximum iOS Safari compatibility (classic worker, no ESM modules in worker)
+// Legacy build for iOS compatibility, Vite ?worker bundles the worker as classic Worker
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+// @ts-ignore — Vite virtual ?worker import
+import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker'
 
 const getDocument = pdfjsLib.getDocument
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs'
+pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker()
 
 export interface CreditCardTransaction {
   transDate: string
