@@ -195,7 +195,8 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     setEmailsLoading(true)
     try {
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
-      const messages = await fetchGmailBankMessages(tokens.accessToken)
+      const sinceDate = month.replace('-', '/') + '/01'
+      const messages = await fetchGmailBankMessages(tokens.accessToken, sinceDate)
       let added = 0, skipped = 0
       const unparsedFroms: string[] = []
       for (const msg of messages) {

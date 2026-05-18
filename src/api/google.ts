@@ -315,8 +315,13 @@ export function parseBankEmail(message: any) {
       /จำนวนเงิน\s*[(（]บาท[)）]\s*[:\s]\s*([\d,]+\.?\d*)/,
       /จำนวนเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
       /ยอดเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
+      // English patterns (KBank bilingual emails)
+      /Amount\s*[(（]THB[)）]\s*[:\s]\s*([\d,]+\.?\d*)/i,
+      /Amount\s*[:\s]\s*([\d,]+\.?\d*)\s*(?:THB|Baht)/i,
+      /Total\s*[:\s]\s*([\d,]+\.?\d*)\s*(?:THB|Baht)/i,
       /THB\s*([\d,]+\.?\d*)/i,
       /([\d,]+\.\d{2})\s*บาท/,
+      /([\d,]+\.\d{2})\s*(?:THB|Baht)/i,
     ]
     for (const pat of patterns) {
       const m = body.match(pat) ?? subject.match(pat)
@@ -338,6 +343,15 @@ export function parseBankEmail(message: any) {
     if (!txDate) {
       const thaiMatch = body.match(/(\d{1,2}\s+[฀-๿]+\s+\d{4})/)
       if (thaiMatch) txDate = parseThaiDate(thaiMatch[1])
+    }
+    // Try English date: "18 May 2026" or "May 18, 2026"
+    if (!txDate) {
+      const engMatch = body.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})/i)
+                    ?? body.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})/i)
+      if (engMatch) {
+        const d = new Date(engMatch[1])
+        if (!isNaN(d.getTime())) txDate = d.toISOString().slice(0, 10)
+      }
     }
   }
   if (!txDate) {
