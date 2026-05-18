@@ -16,7 +16,7 @@ import Condo from './pages/Condo'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/pui-app">
       <Routes>
         <Route path="/wrapped" element={<AnnualWrapped />} />
         <Route path="/shortcuts-guide" element={<ShortcutsGuide />} />
