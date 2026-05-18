@@ -30,8 +30,10 @@ export interface Investment {
   type: InvestmentType
   name: string
   ticker?: string
-  costBasis: number
-  currentValue: number
+  costBasis: number       // total cost (costPerUnit × shares, or entered directly for insurance/savings)
+  currentValue: number   // total current value (currentPricePerUnit × shares, or entered directly)
+  costPerUnit?: number         // ราคาต้นทุนต่อหน่วย (for stock/fund)
+  currentPricePerUnit?: number // ราคาปัจจุบันต่อหน่วย (for stock/fund)
   shares?: number
   hasDividend: boolean
   currency: 'THB' | 'USD' | 'OTHER'

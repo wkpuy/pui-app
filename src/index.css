@@ -3,15 +3,29 @@
 
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif;
   background: #f5f6fa;
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   margin: 0;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 ::-webkit-scrollbar { display: none; }
 * { scrollbar-width: none; }
 
-#root { height: 100dvh; display: flex; flex-direction: column; max-width: 430px; margin: 0 auto; }
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  max-width: 430px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-x: hidden;
+}

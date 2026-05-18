@@ -178,6 +178,189 @@ export default function Health() {
   )
 }
 
+// ── Weight Tracker ─────────────────────────────────────────────────────────
+function WeightTracker({ allDaily, profile }: { allDaily: HealthDaily[]; profile: any }) {
+  const [period, setPeriod] = useState<7 | 30 | 90>(30)
+  const [quickInput, setQuickInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const withWeight = allDaily.filter(d => d.weightKg).sort((a, b) => a.date.localeCompare(b.date))
+  const today = new Date()
+  const cutoff = new Date(today.getTime() - period * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const period7 = new Date(today.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const period30 = new Date(today.getTime() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const inPeriod = withWeight.filter(d => d.date >= cutoff)
+  const latest = withWeight[withWeight.length - 1]
+
+  // Stats
+  const weights = inPeriod.map(d => d.weightKg!)
+  const minW = weights.length ? Math.min(...weights) : null
+  const maxW = weights.length ? Math.max(...weights) : null
+  const avgW = weights.length ? weights.reduce((s, w) => s + w, 0) / weights.length : null
+  const w7d = withWeight.findLast(d => d.date <= period7)?.weightKg
+  const w30d = withWeight.findLast(d => d.date <= period30)?.weightKg
+  const change7 = latest?.weightKg && w7d ? latest.weightKg - w7d : null
+  const change30 = latest?.weightKg && w30d ? latest.weightKg - w30d : null
+
+  async function saveQuick() {
+    const w = parseFloat(quickInput)
+    if (!w || w < 20 || w > 300) {
+      setToast('น้ำหนักไม่ถูกต้อง')
+      setTimeout(() => setToast(null), 2000)
+      return
+    }
+    setSaving(true)
+    try {
+      const todayDate = today.toISOString().slice(0, 10)
+      const existing = await db.healthDaily.where('date').equals(todayDate).first()
+      if (existing) {
+        await db.healthDaily.update(existing.id!, { weightKg: w })
+      } else {
+        await db.healthDaily.add({ date: todayDate, weightKg: w })
+      }
+      setQuickInput('')
+      setToast('บันทึกแล้ว')
+      setTimeout(() => setToast(null), 1500)
+    } catch (e: any) {
+      setToast(e?.message ?? 'บันทึกไม่สำเร็จ')
+      setTimeout(() => setToast(null), 2500)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Build chart path
+  const chartW = 320, chartH = 110, padL = 30, padR = 10, padT = 8, padB = 18
+  const innerW = chartW - padL - padR
+  const innerH = chartH - padT - padB
+  let chartPoints: { x: number; y: number; d: HealthDaily }[] = []
+  let yMin = 0, yMax = 0
+  if (inPeriod.length > 0) {
+    const ys = inPeriod.map(d => d.weightKg!)
+    yMin = Math.min(...ys) - 1
+    yMax = Math.max(...ys) + 1
+    if (yMax - yMin < 2) { yMax = yMin + 2 }
+    const xStart = new Date(cutoff).getTime()
+    const xEnd = today.getTime()
+    chartPoints = inPeriod.map(d => {
+      const t = new Date(d.date).getTime()
+      const x = padL + ((t - xStart) / (xEnd - xStart)) * innerW
+      const y = padT + (1 - (d.weightKg! - yMin) / (yMax - yMin)) * innerH
+      return { x, y, d }
+    })
+  }
+  const pathD = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+
+  return (
+    <div className="mx-4 mt-3 bg-white rounded-2xl shadow-sm overflow-hidden">
+      {toast && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg z-50">{toast}</div>
+      )}
+      {/* Header + quick entry */}
+      <div className="px-4 pt-3 pb-2 border-b border-gray-50 flex items-center justify-between gap-2">
+        <div className="text-[14px] font-bold text-gray-900">📊 น้ำหนัก</div>
+        <div className="flex gap-1.5 items-center">
+          <input
+            type="number"
+            step="0.1"
+            placeholder={latest?.weightKg ? `${latest.weightKg}` : 'กก.'}
+            value={quickInput}
+            onChange={e => setQuickInput(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2 py-1 text-[13px] w-16 text-right"
+          />
+          <button
+            onClick={saveQuick}
+            disabled={saving || !quickInput}
+            className="bg-indigo-600 text-white text-[12px] font-semibold px-3 py-1.5 rounded-lg active:scale-95 disabled:opacity-50"
+          >
+            {saving ? '⏳' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-1 px-3 py-2 border-b border-gray-50 text-center">
+        <div>
+          <div className="text-[10px] text-gray-400">ล่าสุด</div>
+          <div className="text-[13px] font-bold text-gray-900">{latest?.weightKg ?? '—'}</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-gray-400">เฉลี่ย {period}d</div>
+          <div className="text-[13px] font-bold text-gray-900">{avgW ? avgW.toFixed(1) : '—'}</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-gray-400">7วัน</div>
+          <div className={`text-[13px] font-bold ${change7 == null ? 'text-gray-400' : change7 < 0 ? 'text-green-600' : change7 > 0 ? 'text-red-500' : 'text-gray-700'}`}>
+            {change7 == null ? '—' : `${change7 > 0 ? '+' : ''}${change7.toFixed(1)}`}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] text-gray-400">30วัน</div>
+          <div className={`text-[13px] font-bold ${change30 == null ? 'text-gray-400' : change30 < 0 ? 'text-green-600' : change30 > 0 ? 'text-red-500' : 'text-gray-700'}`}>
+            {change30 == null ? '—' : `${change30 > 0 ? '+' : ''}${change30.toFixed(1)}`}
+          </div>
+        </div>
+      </div>
+
+      {/* Period selector */}
+      <div className="flex border-b border-gray-50">
+        {([7, 30, 90] as const).map(p => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`flex-1 py-1.5 text-[12px] font-semibold ${period === p ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400'}`}
+          >{p} วัน</button>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div className="px-2 py-2">
+        {chartPoints.length === 0 ? (
+          <div className="text-center py-6 text-[12px] text-gray-400">ยังไม่มีข้อมูลในช่วงนี้</div>
+        ) : (
+          <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-auto">
+            {/* y-axis labels */}
+            <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{yMax.toFixed(1)}</text>
+            <text x={padL - 4} y={padT + innerH + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{yMin.toFixed(1)}</text>
+            {profile?.heightCm && (() => {
+              // healthy BMI band 18.5-25 → weight band
+              const h = profile.heightCm / 100
+              const wMin = 18.5 * h * h
+              const wMax = 25 * h * h
+              const yWMin = padT + (1 - (wMin - yMin) / (yMax - yMin)) * innerH
+              const yWMax = padT + (1 - (wMax - yMin) / (yMax - yMin)) * innerH
+              const top = Math.min(yWMin, yWMax)
+              const bot = Math.max(yWMin, yWMax)
+              const clipTop = Math.max(top, padT)
+              const clipBot = Math.min(bot, padT + innerH)
+              if (clipBot <= clipTop) return null
+              return <rect x={padL} y={clipTop} width={innerW} height={clipBot - clipTop} fill="#86efac" opacity="0.15" />
+            })()}
+            {/* grid lines */}
+            <line x1={padL} y1={padT + innerH} x2={padL + innerW} y2={padT + innerH} stroke="#e5e7eb" strokeWidth="0.5" />
+            {/* line */}
+            <path d={pathD} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            {/* points */}
+            {chartPoints.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r="2" fill="#6366f1" />
+            ))}
+            {/* x-axis labels */}
+            <text x={padL} y={chartH - 4} textAnchor="start" fontSize="9" fill="#9ca3af">{cutoff.slice(5)}</text>
+            <text x={padL + innerW} y={chartH - 4} textAnchor="end" fontSize="9" fill="#9ca3af">{today.toISOString().slice(5, 10)}</text>
+          </svg>
+        )}
+        {minW != null && maxW != null && (
+          <div className="flex justify-around text-[10px] text-gray-400 pb-1">
+            <span>ต่ำสุด <b className="text-green-600">{minW.toFixed(1)}</b></span>
+            <span>สูงสุด <b className="text-red-500">{maxW.toFixed(1)}</b></span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile, allDaily }: any) {
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
@@ -233,7 +416,10 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile,
         </div>
       )}
 
-      {/* Weight / BMI history */}
+      {/* Weight tracker — chart, quick entry, stats */}
+      <WeightTracker allDaily={allDaily ?? []} profile={profile} />
+
+      {/* Weight / BMI history list */}
       {(() => {
         const withWeight = (allDaily ?? []).filter((d: any) => d.weightKg)
         if (withWeight.length < 2) return null

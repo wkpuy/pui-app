@@ -30,8 +30,10 @@ export default function Investment() {
   const investments = useLiveQuery(() => db.investments.orderBy('type').toArray())
   const dividends = useLiveQuery(() => db.dividends.toArray())
   const filtered = investments?.filter(i => tab === 'all' || i.type === tab) ?? []
-  const totalCost = investments?.reduce((s, i) => s + i.costBasis, 0) ?? 0
-  const totalValue = investments?.reduce((s, i) => s + i.currentValue, 0) ?? 0
+  // exclude insurance from gain/loss totals
+  const investable = investments?.filter(i => i.type !== 'insurance') ?? []
+  const totalCost = investable.reduce((s, i) => s + i.costBasis, 0)
+  const totalValue = investable.reduce((s, i) => s + i.currentValue, 0)
   const totalGain = totalValue - totalCost
   const gainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : 0
   const selectedDividends = dividends?.filter(d => d.investmentId === selectedId) ?? []
@@ -55,15 +57,11 @@ export default function Investment() {
       let updatedCount = 0
       for (const { inv, apiTicker } of invWithApiTicker) {
         const price = prices[apiTicker]
-        if (price && inv.shares) {
+        if (price) {
+          const totalValue = inv.shares ? parseFloat((price * inv.shares).toFixed(2)) : price
           await db.investments.update(inv.id!, {
-            currentValue: parseFloat((price * inv.shares).toFixed(2)),
-            updatedAt: new Date().toISOString(),
-          })
-          updatedCount++
-        } else if (price && !inv.shares) {
-          await db.investments.update(inv.id!, {
-            currentValue: price,
+            currentPricePerUnit: price,
+            currentValue: totalValue,
             updatedAt: new Date().toISOString(),
           })
           updatedCount++
@@ -154,8 +152,14 @@ export default function Investment() {
         ) : (
           <div className="mx-4 mt-3 bg-white rounded-2xl overflow-hidden shadow-sm">
             {filtered.map((inv, idx) => {
-              const gain = inv.currentValue - inv.costBasis
-              const pct = inv.costBasis > 0 ? (gain / inv.costBasis) * 100 : 0
+              const isStock = inv.type === 'thai_stock' || inv.type === 'foreign_stock' || inv.type === 'fund'
+              // derive per-unit prices — use stored value or back-calculate from totals
+              const costUnit = inv.costPerUnit ?? (inv.shares && inv.shares > 0 ? inv.costBasis / inv.shares : inv.costBasis)
+              const priceUnit = inv.currentPricePerUnit ?? (inv.shares && inv.shares > 0 ? inv.currentValue / inv.shares : inv.currentValue)
+              const totalCostItem = inv.costBasis
+              const totalValueItem = inv.currentValue
+              const gain = totalValueItem - totalCostItem
+              const pct = totalCostItem > 0 ? (gain / totalCostItem) * 100 : 0
               const isExpanded = selectedId === inv.id
               return (
                 <div key={inv.id}>
@@ -171,9 +175,15 @@ export default function Investment() {
                         </div>
                         <div>
                           <div className="text-[15px] font-semibold text-gray-900">{inv.name}</div>
-                          <div className="text-xs text-gray-400">
-                            {inv.ticker && `${inv.ticker} · `}ต้นทุน {formatCurrency(inv.costBasis)}
-                          </div>
+                          {isStock && inv.shares ? (
+                            <div className="text-xs text-gray-400">
+                              {inv.ticker && `${inv.ticker} · `}{inv.shares.toLocaleString()} หน่วย · ทุน {formatCurrency(costUnit)}/หน่วย
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-400">
+                              {inv.ticker && `${inv.ticker} · `}ต้นทุน {formatCurrency(totalCostItem)}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
@@ -186,9 +196,17 @@ export default function Investment() {
                                 : '—'}
                             </div>
                           </div>
+                        ) : isStock && inv.shares ? (
+                          <div>
+                            <div className="text-[11px] text-gray-400">{formatCurrency(priceUnit)}/หน่วย</div>
+                            <div className="text-[15px] font-bold text-gray-900">{formatCurrency(totalValueItem)}</div>
+                            <div className={`text-xs font-semibold ${gain >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {gain >= 0 ? '+' : ''}{formatCurrency(gain)} ({formatPct(pct)})
+                            </div>
+                          </div>
                         ) : (
                           <div>
-                            <div className="text-[15px] font-bold text-gray-900">{formatCurrency(inv.currentValue)}</div>
+                            <div className="text-[15px] font-bold text-gray-900">{formatCurrency(totalValueItem)}</div>
                             <div className={`text-xs font-semibold ${gain >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                               {gain >= 0 ? '+' : ''}{formatCurrency(gain)} ({formatPct(pct)})
                             </div>
@@ -249,7 +267,13 @@ export default function Investment() {
 
                   {/* Dividends */}
                   {isExpanded && inv.hasDividend && (
-                    <DividendPanel investmentId={inv.id!} dividends={selectedDividends} costBasis={inv.costBasis} />
+                    <DividendPanel
+                      investmentId={inv.id!}
+                      dividends={selectedDividends}
+                      costBasis={inv.costBasis}
+                      costPerUnit={inv.costPerUnit ?? (inv.shares && inv.shares > 0 ? inv.costBasis / inv.shares : undefined)}
+                      shares={inv.shares}
+                    />
                   )}
                 </div>
               )
@@ -269,14 +293,49 @@ export default function Investment() {
   )
 }
 
-function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: number; dividends: Dividend[]; costBasis: number }) {
+function DividendPanel({ investmentId, dividends, costBasis, costPerUnit, shares }: {
+  investmentId: number; dividends: Dividend[]; costBasis: number
+  costPerUnit?: number; shares?: number
+}) {
   const [showAddDiv, setShowAddDiv] = useState(false)
   const [editDiv, setEditDiv] = useState<Dividend | null>(null)
   const [form, setForm] = useState({ date: '', amountPerShare: '', totalReceived: '' })
 
   const sorted = [...dividends].sort((a, b) => b.date.localeCompare(a.date))
-  const totalReceived = dividends.reduce((s, d) => s + d.totalReceived, 0)
-  const yieldPct = costBasis > 0 ? (totalReceived / costBasis) * 100 : 0
+  const allReceived = dividends.reduce((s, d) => s + d.totalReceived, 0)
+
+  // parse date safely: expects YYYY-MM-DD, guards against extra digits
+  function parseDateParts(dateStr: string): { year: string; mmdd: string } {
+    const m = (dateStr ?? '').match(/(\d{4})-(\d{2})-(\d{2})/)
+    if (m) return { year: m[1], mmdd: `${m[2]}/${m[3]}` }
+    // fallback for malformed dates: try splitting
+    const parts = (dateStr ?? '').split('-')
+    const year = (parts[0] ?? '').slice(0, 4)
+    const mm = (parts[1] ?? '').padStart(2, '0')
+    const dd = (parts[2] ?? '').slice(0, 2).padStart(2, '0')
+    return { year: year || '????', mmdd: `${mm}/${dd}` }
+  }
+
+  // yield per year: group amountPerShare by year, compute each year's yield vs costPerUnit
+  const byYear = dividends.reduce<Record<string, number>>((acc, d) => {
+    const yr = parseDateParts(d.date).year
+    acc[yr] = (acc[yr] ?? 0) + d.amountPerShare
+    return acc
+  }, {})
+  const yearYields = Object.entries(byYear).map(([yr, totalPerShare]) => ({
+    year: yr,
+    yieldPct: costPerUnit && costPerUnit > 0 ? (totalPerShare / costPerUnit) * 100 : 0,
+  })).sort((a, b) => b.year.localeCompare(a.year))
+  // fallback: cumulative yield using totals (for old data without costPerUnit)
+  const fallbackYield = costBasis > 0 ? (allReceived / costBasis) * 100 : 0
+  const hasPerUnit = costPerUnit && costPerUnit > 0
+
+  // when amountPerShare changes, auto-fill totalReceived = amountPerShare × shares
+  function handleAmountPerShare(val: string) {
+    const amt = parseFloat(val) || 0
+    const auto = shares && shares > 0 ? (amt * shares).toFixed(2) : ''
+    setForm(v => ({ ...v, amountPerShare: val, totalReceived: auto || v.totalReceived }))
+  }
 
   async function saveDividend() {
     if (!form.date || !form.totalReceived) return
@@ -304,23 +363,50 @@ function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: n
 
   return (
     <div className="mx-4 mb-3 bg-indigo-50 rounded-xl p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[12px] font-bold text-indigo-700">ประวัติปันผล · Yield {yieldPct.toFixed(1)}%</div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[12px] font-bold text-indigo-700">ประวัติปันผล</div>
         <button onClick={() => { setEditDiv(null); setForm({ date: '', amountPerShare: '', totalReceived: '' }); setShowAddDiv(v => !v) }}
           className="text-[12px] text-indigo-600 font-semibold">＋ เพิ่ม</button>
       </div>
+      {/* Yield per year summary */}
+      {yearYields.length > 0 && (
+        <div className="flex gap-2 mb-2 flex-wrap">
+          {yearYields.map(({ year, yieldPct: yp }) => (
+            <div key={year} className="bg-indigo-100 rounded-lg px-2 py-0.5 text-[11px]">
+              <span className="text-indigo-500">{year} </span>
+              <span className="font-bold text-indigo-700">
+                {hasPerUnit ? yp.toFixed(2) : fallbackYield.toFixed(2)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {showAddDiv && (
         <div className="bg-white rounded-xl p-3 mb-2 flex flex-col gap-2">
           <div className="text-[12px] font-semibold text-gray-500">{editDiv ? 'แก้ไขปันผล' : 'เพิ่มปันผล'}</div>
           <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
-          <input type="number" placeholder="บาท/หุ้น" value={form.amountPerShare}
-            onChange={e => setForm(v => ({ ...v, amountPerShare: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
-          <input type="number" placeholder="ได้รับรวม (บาท)" value={form.totalReceived}
-            onChange={e => setForm(v => ({ ...v, totalReceived: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
+          <div>
+            <input type="number" placeholder="ปันผล / หุ้น (บาท)" value={form.amountPerShare}
+              onChange={e => handleAmountPerShare(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
+            {shares && shares > 0 && form.amountPerShare && (
+              <div className="text-[11px] text-indigo-500 mt-1 pl-1">
+                {parseFloat(form.amountPerShare).toFixed(2)} × {shares.toLocaleString()} หุ้น = ฿{(parseFloat(form.amountPerShare) * shares).toFixed(2)}
+              </div>
+            )}
+          </div>
+          <div>
+            <input type="number" placeholder="ได้รับรวม (บาท)" value={form.totalReceived}
+              onChange={e => setForm(v => ({ ...v, totalReceived: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
+            {costPerUnit && costPerUnit > 0 && form.amountPerShare && (
+              <div className="text-[11px] text-indigo-500 mt-1 pl-1">
+                Yield ครั้งนี้: {((parseFloat(form.amountPerShare) / costPerUnit) * 100).toFixed(2)}%
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <button onClick={saveDividend} className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold">บันทึก</button>
             <button onClick={() => { setShowAddDiv(false); setEditDiv(null) }} className="px-4 bg-gray-100 text-gray-600 rounded-lg py-2 text-sm">ยกเลิก</button>
@@ -333,14 +419,18 @@ function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: n
       ) : (
         <>
           <div className="grid grid-cols-5 gap-1 text-[10px] font-bold text-indigo-400 mb-1 px-1">
-            <div>วันที่</div><div className="text-right">บ./หุ้น</div><div className="text-right">ได้รับ</div><div className="text-right">Yield</div><div></div>
+            <div>วันที่</div><div className="text-right">บ./หุ้น</div><div className="text-right">ได้รับ</div><div className="text-right">Yield%</div><div></div>
           </div>
           {sorted.slice(0, 6).map(d => (
             <div key={d.id} className="grid grid-cols-5 gap-1 text-[12px] py-1 border-t border-indigo-100 px-1 items-center">
-              <div className="text-gray-500">{d.date.slice(5)}</div>
+              <div className="text-gray-500">{parseDateParts(d.date).mmdd}</div>
               <div className="text-right font-medium">{d.amountPerShare.toFixed(2)}</div>
               <div className="text-right text-green-600 font-semibold">{formatCurrency(d.totalReceived)}</div>
-              <div className="text-right text-indigo-600">{costBasis > 0 ? ((d.totalReceived / costBasis) * 100).toFixed(1) + '%' : '—'}</div>
+              <div className="text-right text-indigo-600">
+                {costPerUnit && costPerUnit > 0
+                  ? ((d.amountPerShare / costPerUnit) * 100).toFixed(2) + '%'
+                  : costBasis > 0 ? ((d.totalReceived / costBasis) * 100).toFixed(1) + '%' : '—'}
+              </div>
               <div className="flex gap-1 justify-end">
                 <button onClick={() => startEdit(d)} className="text-[10px] text-indigo-500">✏️</button>
                 <button onClick={() => { if (confirm('ลบปันผลนี้?')) db.dividends.delete(d.id!) }} className="text-[10px] text-red-400">🗑️</button>
@@ -348,8 +438,8 @@ function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: n
             </div>
           ))}
           <div className="mt-2 pt-2 border-t border-indigo-200 flex justify-between text-[12px]">
-            <span className="text-indigo-500">รวมทั้งหมด</span>
-            <span className="font-bold text-green-600">{formatCurrency(totalReceived)}</span>
+            <span className="text-indigo-500">รวมได้รับทั้งหมด</span>
+            <span className="font-bold text-green-600">{formatCurrency(allReceived)}</span>
           </div>
         </>
       )}
@@ -358,9 +448,25 @@ function DividendPanel({ investmentId, dividends, costBasis }: { investmentId: n
 }
 
 function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; onClose: () => void }) {
+  // derive per-unit values when editing old records that only have totals
+  const initCostPerUnit = () => {
+    if (editItem?.costPerUnit != null) return editItem.costPerUnit.toString()
+    if (editItem?.shares && editItem.shares > 0 && editItem.costBasis > 0)
+      return (editItem.costBasis / editItem.shares).toFixed(4)
+    return editItem?.costBasis?.toString() ?? ''
+  }
+  const initPricePerUnit = () => {
+    if (editItem?.currentPricePerUnit != null) return editItem.currentPricePerUnit.toString()
+    if (editItem?.shares && editItem.shares > 0 && editItem.currentValue > 0)
+      return (editItem.currentValue / editItem.shares).toFixed(4)
+    return editItem?.currentValue?.toString() ?? ''
+  }
+
   const [form, setForm] = useState<{
     type: InvestmentType
-    name: string; ticker: string; costBasis: string; currentValue: string; shares: string
+    name: string; ticker: string; costPerUnit: string; currentPricePerUnit: string; shares: string
+    // for insurance total cost & savings balance
+    costBasisDirect: string; currentValueDirect: string
     hasDividend: boolean; currency: string; notes: string
     insCompany: string
     insPolicyType: 'life' | 'health' | 'accident' | 'savings_insurance' | 'other'
@@ -373,9 +479,11 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
     type: (editItem?.type ?? 'thai_stock') as InvestmentType,
     name: editItem?.name ?? '',
     ticker: editItem?.ticker ?? '',
-    costBasis: editItem?.costBasis?.toString() ?? '',
-    currentValue: editItem?.currentValue?.toString() ?? '',
+    costPerUnit: initCostPerUnit(),
+    currentPricePerUnit: initPricePerUnit(),
     shares: editItem?.shares?.toString() ?? '',
+    costBasisDirect: editItem?.costBasis?.toString() ?? '',
+    currentValueDirect: editItem?.currentValue?.toString() ?? '',
     hasDividend: editItem?.hasDividend ?? false,
     currency: editItem?.currency ?? 'THB',
     notes: editItem?.notes ?? '',
@@ -390,8 +498,38 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
     savInterestRate: editItem?.savingsDetails?.interestRate?.toString() ?? '',
   })
 
+  // computed preview for stock/fund
+  const sharesNum = parseFloat(form.shares) || 0
+  const costUnitNum = parseFloat(form.costPerUnit) || 0
+  const priceUnitNum = parseFloat(form.currentPricePerUnit) || 0
+  const previewTotalCost = sharesNum * costUnitNum
+  const previewTotalValue = sharesNum * priceUnitNum
+  const previewGain = previewTotalValue - previewTotalCost
+  const previewPct = previewTotalCost > 0 ? (previewGain / previewTotalCost) * 100 : 0
+
   async function save() {
     if (!form.name) return
+
+    const isStockType = form.type === 'thai_stock' || form.type === 'foreign_stock' || form.type === 'fund'
+    const sharesVal = form.shares ? parseFloat(form.shares) : undefined
+
+    let costBasisVal: number
+    let currentValueVal: number
+    let costPerUnitVal: number | undefined
+    let currentPricePerUnitVal: number | undefined
+
+    if (isStockType && sharesVal && sharesVal > 0) {
+      costPerUnitVal = parseFloat(form.costPerUnit) || 0
+      currentPricePerUnitVal = parseFloat(form.currentPricePerUnit) || 0
+      costBasisVal = parseFloat((costPerUnitVal * sharesVal).toFixed(2))
+      currentValueVal = parseFloat((currentPricePerUnitVal * sharesVal).toFixed(2))
+    } else if (form.type === 'savings') {
+      currentValueVal = parseFloat(form.currentValueDirect) || 0
+      costBasisVal = currentValueVal
+    } else {
+      costBasisVal = parseFloat(form.costBasisDirect) || 0
+      currentValueVal = parseFloat(form.currentValueDirect) || 0
+    }
 
     const insuranceDetails: InsuranceDetails | undefined = form.type === 'insurance' ? {
       company: form.insCompany || undefined,
@@ -412,9 +550,11 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
       type: form.type,
       name: form.name,
       ticker: form.ticker || undefined,
-      costBasis: parseFloat(form.costBasis) || 0,
-      currentValue: parseFloat(form.currentValue) || 0,
-      shares: form.shares ? parseFloat(form.shares) : undefined,
+      costBasis: costBasisVal,
+      currentValue: currentValueVal,
+      costPerUnit: costPerUnitVal,
+      currentPricePerUnit: currentPricePerUnitVal,
+      shares: sharesVal,
       hasDividend: form.hasDividend,
       currency: form.currency as 'THB' | 'USD' | 'OTHER',
       notes: form.notes || undefined,
@@ -492,8 +632,8 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
                 className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
             </div>
             <div className="text-[12px] font-bold text-indigo-600 -mb-1">ต้นทุนรวมที่จ่ายไปแล้ว</div>
-            <input type="number" placeholder="ต้นทุนรวม (บาท)" value={form.costBasis}
-              onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
+            <input type="number" placeholder="ต้นทุนรวม (บาท)" value={form.costBasisDirect}
+              onChange={e => setForm(v => ({ ...v, costBasisDirect: e.target.value }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
           </>
         )}
@@ -517,8 +657,8 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
                 className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
             </div>
             <div className="text-[12px] font-bold text-green-600 -mb-1">ยอดเงินปัจจุบัน</div>
-            <input type="number" placeholder="ยอดเงิน (บาท)" value={form.currentValue}
-              onChange={e => setForm(v => ({ ...v, currentValue: e.target.value, costBasis: e.target.value }))}
+            <input type="number" placeholder="ยอดเงิน (บาท)" value={form.currentValueDirect}
+              onChange={e => setForm(v => ({ ...v, currentValueDirect: e.target.value }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
           </>
         )}
@@ -526,20 +666,45 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
         {/* Stock/fund fields */}
         {isStock && (
           <>
-            <input placeholder="Ticker (เช่น CPALL.BK, QQQ)" value={form.ticker}
-              onChange={e => setForm(v => ({ ...v, ticker: e.target.value }))}
+            <input placeholder="Ticker (เช่น CPALL, QQQ)" value={form.ticker}
+              onChange={e => setForm(v => ({ ...v, ticker: e.target.value.toUpperCase() }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-            <div className="grid grid-cols-2 gap-2">
-              <input type="number" placeholder="ต้นทุน (บาท)" value={form.costBasis}
-                onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
-                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
-              <input type="number" placeholder="มูลค่าตอนนี้" value={form.currentValue}
-                onChange={e => setForm(v => ({ ...v, currentValue: e.target.value }))}
-                className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
-            </div>
-            <input type="number" placeholder="จำนวนหุ้น/หน่วย (สำหรับ auto sync)" value={form.shares}
+            <input type="number" placeholder="จำนวนหุ้น / หน่วย" value={form.shares}
               onChange={e => setForm(v => ({ ...v, shares: e.target.value }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[11px] text-gray-500 mb-1 pl-1">ราคาต้นทุน / หน่วย (บาท)</div>
+                <input type="number" placeholder="เช่น 45.50" value={form.costPerUnit}
+                  onChange={e => setForm(v => ({ ...v, costPerUnit: e.target.value }))}
+                  className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-500 mb-1 pl-1">ราคาปัจจุบัน / หน่วย (บาท)</div>
+                <input type="number" placeholder="เช่น 52.00" value={form.currentPricePerUnit}
+                  onChange={e => setForm(v => ({ ...v, currentPricePerUnit: e.target.value }))}
+                  className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+              </div>
+            </div>
+            {/* Live preview of computed totals */}
+            {sharesNum > 0 && (costUnitNum > 0 || priceUnitNum > 0) && (
+              <div className="bg-gray-50 rounded-xl px-4 py-3 text-[12px] space-y-1">
+                <div className="flex justify-between text-gray-500">
+                  <span>ต้นทุนรวม ({sharesNum.toLocaleString()} × {formatCurrency(costUnitNum)})</span>
+                  <span className="font-semibold text-gray-700">{formatCurrency(previewTotalCost)}</span>
+                </div>
+                <div className="flex justify-between text-gray-500">
+                  <span>มูลค่าตอนนี้ ({sharesNum.toLocaleString()} × {formatCurrency(priceUnitNum)})</span>
+                  <span className="font-semibold text-gray-700">{formatCurrency(previewTotalValue)}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1">
+                  <span className="text-gray-500">กำไร / ขาดทุน</span>
+                  <span className={`font-bold ${previewGain >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {previewGain >= 0 ? '+' : ''}{formatCurrency(previewGain)} ({formatPct(previewPct)})
+                  </span>
+                </div>
+              </div>
+            )}
             <label className="flex items-center gap-3 px-1">
               <input type="checkbox" checked={form.hasDividend} onChange={e => setForm(v => ({ ...v, hasDividend: e.target.checked }))}
                 className="w-5 h-5 rounded accent-indigo-600" />
@@ -551,12 +716,18 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
         {/* Other type */}
         {form.type === 'other' && (
           <div className="grid grid-cols-2 gap-2">
-            <input type="number" placeholder="ต้นทุน (บาท)" value={form.costBasis}
-              onChange={e => setForm(v => ({ ...v, costBasis: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
-            <input type="number" placeholder="มูลค่าตอนนี้" value={form.currentValue}
-              onChange={e => setForm(v => ({ ...v, currentValue: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm" />
+            <div>
+              <div className="text-[11px] text-gray-500 mb-1 pl-1">ต้นทุนรวม (บาท)</div>
+              <input type="number" placeholder="0" value={form.costBasisDirect}
+                onChange={e => setForm(v => ({ ...v, costBasisDirect: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            </div>
+            <div>
+              <div className="text-[11px] text-gray-500 mb-1 pl-1">มูลค่าตอนนี้ (บาท)</div>
+              <input type="number" placeholder="0" value={form.currentValueDirect}
+                onChange={e => setForm(v => ({ ...v, currentValueDirect: e.target.value }))}
+                className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            </div>
           </div>
         )}
 

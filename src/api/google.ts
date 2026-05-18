@@ -164,22 +164,59 @@ export function calcSinceDate(monthsSelection: number): string {
 }
 
 export function parseBankEmail(message: any) {
-  const subject = message.payload?.headers?.find((h: any) => h.name === 'Subject')?.value || ''
-  const date = message.payload?.headers?.find((h: any) => h.name === 'Date')?.value || ''
+  const headers = message.payload?.headers || []
+  const subject: string = headers.find((h: any) => h.name === 'Subject')?.value || ''
+  const from: string = headers.find((h: any) => h.name === 'From')?.value || ''
+  const dateHeader: string = headers.find((h: any) => h.name === 'Date')?.value || ''
   const body = extractEmailBody(message.payload)
 
-  const amountMatch = body.match(/([0-9,]+\.?[0-9]*)\s*บาท|฿([0-9,]+\.?[0-9]*)/)
-  const amount = amountMatch ? parseFloat((amountMatch[1] || amountMatch[2]).replace(/,/g, '')) : 0
+  const isKBank = from.includes('kasikornbank.com') || from.includes('kbank.co.th')
+  const isBBL = from.includes('bangkokbank.com') || from.includes('bbl.co.th')
 
-  const isExpense = /หัก|ชำระ|โอนออก|ซื้อ/.test(subject + body)
+  let amount = 0
+  let description = subject
+  let txDate = ''
+
+  if (isKBank) {
+    // KBank: "จำนวนเงิน (บาท): 22.00"
+    const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)\s*:\s*([\d,]+\.?\d*)/)
+    amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
+
+    // Date: "วันที่ทำรายการ: 14/05/2026"
+    const dateMatch = body.match(/วันที่ทำรายการ\s*:\s*(\d{2})\/(\d{2})\/(\d{4})/)
+    if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
+
+    // Payee
+    const payeeMatch = body.match(/เพื่อเข้าบัญชีบริษัท\s*:\s*(.+)/)
+      ?? body.match(/ชื่อบัญชี\s*:\s*(.+)/)
+    if (payeeMatch) description = payeeMatch[1].trim()
+
+  } else if (isBBL) {
+    // Bangkok Bank: "จำนวนเงิน (บาท)\t 6,770.00"
+    const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)[^\d]*([\d,]+\.?\d*)/)
+    amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
+
+    // Date from subject: "(08/05/2026 @ 17:03:53)"
+    const dateMatch = subject.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+    if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
+
+    // Payee
+    const payeeMatch = body.match(/ชื่อบริษัท \/ ชื่อผู้ให้บริการ\s+(.+)/)
+      ?? body.match(/ชื่อบัญชี\s+(.+)/)
+    if (payeeMatch) description = payeeMatch[1].trim()
+  }
+
+  // Fallback: parse date from email header
+  if (!txDate) {
+    try { txDate = new Date(dateHeader).toISOString().slice(0, 10) } catch { txDate = '' }
+  }
 
   return {
-    date: new Date(date).toISOString().slice(0, 10),
+    date: txDate || new Date().toISOString().slice(0, 10),
     amount,
-    type: isExpense ? 'expense' : 'income',
-    description: subject,
-    source: subject.toLowerCase().includes('kasikorn') || subject.toLowerCase().includes('kbank')
-      ? 'kasikorn' : 'bangkok_bank',
+    type: 'expense' as const, // these emails are always outgoing transactions
+    description,
+    source: isKBank ? 'kasikorn' : 'bangkok_bank',
     rawRef: message.id as string,
   }
 }

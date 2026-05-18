@@ -238,22 +238,46 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
   async function saveImport() {
     if (!importState) return
     const toSave = importState.txns.filter((_, i) => importState.selected[i])
+    if (toSave.length === 0) return
+    const fallbackDate = new Date().toISOString().slice(0, 10)
     try {
-      for (const txn of toSave) {
-        await db.financeRecords.add({
-          date: txn.transDate,
-          amount: Math.abs(txn.amount),
-          type: txn.amount < 0 ? 'income' : 'expense',
-          category: txn.amount < 0 ? 'อื่นๆ' : txn.category,
-          description: txn.description,
-          source: 'credit_card',
-          rawRef: importState.file.id,
-        })
-      }
+      // dedupe against existing records with same rawRef (allow re-import)
+      const existing = await db.financeRecords.where('rawRef').equals(importState.file.id).toArray()
+      const existingKeys = new Set(existing.map(r => `${r.date}|${r.amount}|${r.description}`))
+
+      let added = 0
+      let skipped = 0
+      // atomic: either all succeed or all rollback
+      await db.transaction('rw', db.financeRecords, async () => {
+        for (const txn of toSave) {
+          const date = txn.transDate || fallbackDate
+          const amount = Math.abs(txn.amount)
+          const description = txn.description || '(ไม่ระบุ)'
+          const key = `${date}|${amount}|${description}`
+          if (existingKeys.has(key)) { skipped++; continue }
+          await db.financeRecords.add({
+            date,
+            amount,
+            type: txn.amount < 0 ? 'income' : 'expense',
+            category: txn.amount < 0 ? 'อื่นๆ' : (txn.category || 'อื่นๆ'),
+            description,
+            source: 'credit_card',
+            rawRef: importState.file.id,
+          })
+          existingKeys.add(key)
+          added++
+        }
+      })
       setImportState(null)
-      setToast({ text: `บันทึก ${toSave.length} รายการแล้ว`, type: 'success' })
+      setToast({
+        text: added > 0
+          ? `บันทึก ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`
+          : `ทั้งหมดเป็นรายการซ้ำ (${skipped})`,
+        type: added > 0 ? 'success' : 'error',
+      })
     } catch (e: any) {
-      setToast({ text: e.message ?? 'บันทึกไม่สำเร็จ', type: 'error' })
+      console.error('saveImport error:', e)
+      setToast({ text: `บันทึกไม่สำเร็จ: ${e?.message ?? e}`, type: 'error' })
     }
   }
 
@@ -376,15 +400,13 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
                           </div>
                         </div>
                         <div className="flex gap-1.5">
-                          {!alreadySynced && (
-                            <button
-                              onClick={() => importPdf(bill)}
-                              disabled={isImporting}
-                              className="text-[12px] font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg active:scale-95 disabled:opacity-50"
-                            >
-                              {isImporting ? '⏳' : '📥 นำเข้า'}
-                            </button>
-                          )}
+                          <button
+                            onClick={() => importPdf(bill)}
+                            disabled={isImporting}
+                            className="text-[12px] font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg active:scale-95 disabled:opacity-50"
+                          >
+                            {isImporting ? '⏳' : alreadySynced ? '📥 นำเข้าซ้ำ' : '📥 นำเข้า'}
+                          </button>
                           {bill.webViewLink && (
                             <a href={bill.webViewLink} target="_blank" rel="noopener noreferrer"
                               className="text-[12px] font-semibold text-purple-600 bg-purple-50 px-2.5 py-1.5 rounded-lg active:scale-95">
