@@ -143,7 +143,13 @@ export default function Settings() {
         }
       }
       await db.syncLog.add({ source: 'whoop', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} ใหม่, ${updated} อัปเดต` })
-      setSyncStatus(`✅ WHOOP: +${added} วันใหม่${updated > 0 ? `, อัปเดต ${updated}` : ''}`)
+      if (records.length === 0) {
+        setSyncStatus('⚠️ WHOOP: ไม่มีข้อมูลจาก API (ลอง sync ใหม่อีกครั้ง)')
+      } else if (added === 0 && updated === 0) {
+        setSyncStatus(`ℹ️ WHOOP: ข้อมูลเป็นปัจจุบันแล้ว (พบ ${records.length} วัน ไม่มีรายการใหม่)`)
+      } else {
+        setSyncStatus(`✅ WHOOP: +${added} วันใหม่${updated > 0 ? `, อัปเดต ${updated}` : ''} (จาก ${records.length} วัน)`)
+      }
     } catch (e: any) {
       setSyncStatus(`❌ WHOOP sync ล้มเหลว: ${e.message}`)
     } finally {
