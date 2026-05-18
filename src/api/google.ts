@@ -134,9 +134,9 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
 // sinceDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
 export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
   const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
-  // Sender domains + subject keywords for KPLUS (KBank) and BBL
+  // KBank (KPLUS@kasikornbank.com) + Bangkok Bank (BualuangmBanking@bangkokbank.com) only
   const query = encodeURIComponent(
-    `(from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th OR bbl.co.th OR scb.co.th)` +
+    `(from:(kasikornbank.com OR bangkokbank.com)` +
     ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"` +
     ` OR "ยืนยันการชำระเงิน" OR "ยืนยันการโอนเงิน" OR "ยืนยันการเติมเงิน"))` +
     ` ${timeFilter}`
@@ -230,12 +230,11 @@ export function parseBankEmail(message: any) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  // KPLUS@kasikornbank.com subjects: "Result of Funds Transfer (Success)"
-  // "Result of PromptPay Funds Transfer (Success)", "Result of Bill Payment (Success)"
-  const isKBank = from.includes('kasikornbank.com') || from.includes('kbank.co.th')
+  // KBank: KPLUS@kasikornbank.com — "Result of Funds Transfer/PromptPay/Bill Payment (Success)"
+  // BBL:   BualuangmBanking@bangkokbank.com — "ยืนยันการชำระเงิน/โอนเงิน/เติมเงินพร้อมเพย์"
+  const isKBank = from.includes('kasikornbank.com')
               || /Result of .*(Transfer|Payment)/i.test(subject)
-  const isBBL = from.includes('bangkokbank.com') || from.includes('bbl.co.th')
-  const isSCB = from.includes('scb.co.th') || from.includes('scbeasy')
+  const isBBL = from.includes('bangkokbank.com')
 
   let amount = 0
   let description = subject
@@ -332,7 +331,7 @@ export function parseBankEmail(message: any) {
     try { txDate = new Date(dateHeader).toISOString().slice(0, 10) } catch { txDate = '' }
   }
 
-  const source = isKBank ? 'kasikorn' : isBBL ? 'bangkok_bank' : isSCB ? 'scb' : 'other'
+  const source = isKBank ? 'kasikorn' : isBBL ? 'bangkok_bank' : 'other'
 
   return {
     date: txDate || new Date().toISOString().slice(0, 10),
