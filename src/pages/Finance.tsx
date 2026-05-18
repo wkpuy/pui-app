@@ -75,6 +75,7 @@ export default function Finance() {
           <OverviewTab
             income={income} expense={expense} net={net}
             expenseByCategory={expenseByCategory}
+            monthRecords={monthRecords}
             month={month}
           />
         )}
@@ -117,8 +118,8 @@ function detectCat(description: string): string {
   return 'ช้อปปิ้ง'
 }
 
-function OverviewTab({ income, expense, net, expenseByCategory, month }: {
-  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; month: string
+function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month }: {
+  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string
 }) {
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
   const [bills, setBills] = useState<BillFile[]>([])
@@ -290,6 +291,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
             description,
             source: 'credit_card',
             rawRef: importState.file.id,
+            cardName: importState.file.bankName,
           })
           existingKeys.add(key)
           added++
@@ -323,6 +325,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
             startDate: txn.transDate || fallbackDate,
             category: txn.category || 'ช้อปปิ้ง',
             source: 'credit_card',
+            cardName: importState.file.bankName,
           })
           instAdded++
         } else if (existing.paidInstallments < current) {
@@ -364,6 +367,39 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
           <div className={`text-[15px] font-bold ${net >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>{formatCurrency(net)}</div>
         </Card>
       </div>
+
+      {/* Credit card spending summary */}
+      {(() => {
+        const cardExpense = monthRecords
+          .filter(r => r.type === 'expense' && r.source === 'credit_card' && r.cardName)
+          .reduce((acc, r) => { acc[r.cardName!] = (acc[r.cardName!] || 0) + r.amount; return acc }, {} as Record<string, number>)
+        const cards = Object.entries(cardExpense).sort((a, b) => b[1] - a[1])
+        if (cards.length === 0) return null
+        const cardTotal = cards.reduce((s, [, v]) => s + v, 0)
+        return (
+          <>
+            <SectionLabel>ยอดใช้จ่ายบัตรเครดิต</SectionLabel>
+            <div className="mx-4 bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
+              {cards.map(([card, amt], idx) => (
+                <div key={card} className={`px-4 py-3 ${idx < cards.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[14px] font-medium text-gray-700">
+                      💳 {BANK_LABELS[card]?.label ?? card}
+                      <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${BANK_LABELS[card]?.color ?? 'bg-gray-100 text-gray-600'}`}>{card}</span>
+                    </span>
+                    <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+                  </div>
+                  <ProgressBar value={amt} max={cardTotal} color="bg-purple-400" />
+                </div>
+              ))}
+              <div className="px-4 py-2.5 bg-gray-50 flex justify-between">
+                <span className="text-[12px] font-semibold text-gray-500">รวมทุกบัตร</span>
+                <span className="text-[13px] font-bold text-purple-700">{formatCurrency(cardTotal)}</span>
+              </div>
+            </div>
+          </>
+        )
+      })()}
 
       {Object.keys(expenseByCategory).length > 0 && (
         <>
@@ -843,7 +879,16 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
               <div key={inst.id} className={`bg-white rounded-2xl p-4 shadow-sm ${isDone ? 'opacity-60' : ''}`}>
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <div className="text-[14px] font-semibold text-gray-900">{inst.name}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="text-[14px] font-semibold text-gray-900">{inst.name}</div>
+                      {inst.cardName && (() => {
+                        const CARD_COLORS: Record<string, string> = {
+                          KTC: 'bg-blue-100 text-blue-700', KBANK: 'bg-green-100 text-green-700',
+                          KRUNGSRI: 'bg-yellow-100 text-yellow-700', UOB: 'bg-red-100 text-red-700',
+                        }
+                        return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${CARD_COLORS[inst.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {inst.cardName}</span>
+                      })()}
+                    </div>
                     <div className="text-[12px] text-gray-400">{inst.category} · เริ่ม {inst.startDate.slice(0, 7)}</div>
                   </div>
                   <div className="flex gap-1">

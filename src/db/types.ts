@@ -158,6 +158,7 @@ export interface FinanceRecord {
   description: string
   source: 'kasikorn' | 'bangkok_bank' | 'credit_card' | 'manual' | 'other'
   rawRef?: string
+  cardName?: string  // e.g. 'KTC', 'KBANK', 'KRUNGSRI', 'UOB'
 }
 
 export interface Installment {
@@ -170,6 +171,7 @@ export interface Installment {
   startDate: string // YYYY-MM-DD
   category: string
   source: string
+  cardName?: string  // e.g. 'KTC', 'KBANK', 'KRUNGSRI', 'UOB'
   notes?: string
 }
 
