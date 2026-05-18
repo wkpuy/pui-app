@@ -132,6 +132,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
   const [importState, setImportState] = useState<ImportState | null>(null)
   const [importing, setImporting] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [syncDebug, setSyncDebug] = useState<{ subject: string; from: string; body: string; amount: number }[]>([])
 
   // Manual PDF upload
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -199,6 +200,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       const messages = await fetchGmailBankMessages(tokens.accessToken, sinceDate)
       let added = 0, skipped = 0
       const unparsedFroms: string[] = []
+      const debugFailed: { subject: string; from: string; body: string; amount: number }[] = []
       for (const msg of messages) {
         const txn: any = parseBankEmail(msg)
         if (!txn.rawRef || txn.amount <= 0) {
@@ -206,6 +208,10 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             const domain = txn.fromHeader.match(/@([^\s>]+)/)?.[1] ?? txn.fromHeader
             unparsedFroms.push(domain)
           }
+          const headers = msg.payload?.headers || []
+          const subj = headers.find((h: any) => h.name === 'Subject')?.value ?? ''
+          const from = headers.find((h: any) => h.name === 'From')?.value ?? ''
+          debugFailed.push({ subject: subj, from, body: txn.bodySnippet ?? '', amount: txn.amount ?? 0 })
           continue
         }
         const exists = await db.financeRecords.where('rawRef').equals(txn.rawRef).count()
@@ -221,6 +227,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         })
         added++
       }
+      setSyncDebug(debugFailed)
       const fromsNote = unparsedFroms.length > 0 ? ` · จาก: ${[...new Set(unparsedFroms)].slice(0, 2).join(', ')}` : ''
       const detail = `(พบ ${messages.length} อีเมล${unparsedFroms.length > 0 ? ` · อ่านยอดไม่ได้ ${unparsedFroms.length}` : ''}${skipped > 0 ? ` · ซ้ำ ${skipped}` : ''}${fromsNote})`
       setToast({
@@ -529,6 +536,20 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
           )}
         </Card>
       </div>
+
+      {/* Debug panel — failed emails */}
+      {syncDebug.length > 0 && (
+        <div className="mx-4 mb-4">
+          <div className="text-[12px] font-bold text-red-500 mb-2">🔍 อีเมลที่อ่านไม่ได้ ({syncDebug.length} รายการ)</div>
+          {syncDebug.map((d, i) => (
+            <div key={i} className="bg-red-50 rounded-xl p-3 mb-2 text-[11px]">
+              <div className="font-bold text-red-700 mb-1 break-all">{d.subject || '(ไม่มี subject)'}</div>
+              <div className="text-red-400 mb-1">{d.from}</div>
+              <div className="text-gray-500 font-mono break-all whitespace-pre-wrap">{d.body || '(body ว่าง)'}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Credit card PDF section */}
       <div className="mx-4 mb-4">

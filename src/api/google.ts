@@ -368,6 +368,7 @@ export function parseBankEmail(message: any) {
     source,
     rawRef,
     fromHeader: from,
+    bodySnippet: body.slice(0, 400),
   }
 }
 
