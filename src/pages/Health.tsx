@@ -152,7 +152,7 @@ export default function Health() {
 
       <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
-          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} checkups={checkups} profile={profile} allDaily={allDaily} />
+          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} checkups={checkups} profile={profile} allDaily={allDaily} allRecords={allRecords} />
         )}
         {tab === 'myplan' && <MyPlanTab age={age} latestRecord={latestRecord} />}
         {tab === 'longevity' && (
@@ -361,7 +361,23 @@ function WeightTracker({ allDaily, profile }: { allDaily: HealthDaily[]; profile
   )
 }
 
-function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile, allDaily }: any) {
+function Sparkline({ points, color = '#6366f1', height = 48 }: { points: number[]; color?: string; height?: number }) {
+  if (points.length < 2) return null
+  const w = 200, h = height, pad = 4
+  const min = Math.min(...points), max = Math.max(...points)
+  const range = max - min || 1
+  const xs = points.map((_, i) => pad + (i / (points.length - 1)) * (w - pad * 2))
+  const ys = points.map(v => h - pad - ((v - min) / range) * (h - pad * 2))
+  const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(' ')
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height }}>
+      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="3" fill={color} />
+    </svg>
+  )
+}
+
+function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile, allDaily, allRecords }: any) {
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
   const basicKeys = ['systolic', 'diastolic', 'heartRate', 'glucose', 'hba1c', 'ldl', 'hdl', 'triglycerides']
@@ -556,6 +572,105 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile,
                 </Card>
               )}
             </div>
+          </div>
+        )
+      })()}
+
+      {/* VO2max Trend */}
+      {(() => {
+        const pts = (allDaily ?? []).filter((d: any) => d.vo2max).sort((a: any, b: any) => a.date.localeCompare(b.date))
+        if (pts.length === 0) return null
+        const latest = pts[pts.length - 1].vo2max
+        const avg = Math.round(pts.reduce((s: number, d: any) => s + d.vo2max, 0) / pts.length * 10) / 10
+        const trend = pts.length >= 2 ? pts[pts.length - 1].vo2max - pts[0].vo2max : 0
+        const statusColor = latest >= 50 ? 'text-green-600' : latest >= 40 ? 'text-amber-500' : 'text-red-500'
+        const statusLabel = latest >= 50 ? 'Excellent' : latest >= 42 ? 'Good' : latest >= 35 ? 'Average' : 'Low'
+        return (
+          <div className="mx-4 mt-3">
+            <Card>
+              <div className="flex items-center justify-between mb-1">
+                <CardTitle>🫁 VO₂max</CardTitle>
+                <span className={`text-[11px] font-bold ${statusColor}`}>{statusLabel}</span>
+              </div>
+              <div className="flex items-end gap-3 mb-2">
+                <div>
+                  <div className={`text-[28px] font-bold leading-none ${statusColor}`}>{latest.toFixed(1)}</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">ml/kg/min</div>
+                </div>
+                <div className="mb-1 text-[13px] text-gray-400">
+                  เฉลี่ย <b className="text-gray-700">{avg}</b>
+                  {pts.length >= 2 && (
+                    <span className={`ml-2 font-semibold ${trend > 0 ? 'text-green-600' : trend < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                      {trend > 0 ? '▲' : trend < 0 ? '▼' : '—'}{Math.abs(trend).toFixed(1)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Sparkline points={pts.map((d: any) => d.vo2max)} color={latest >= 42 ? '#16a34a' : '#f59e0b'} height={44} />
+              <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                <span>{pts[0].date.slice(5)}</span>
+                <span>{pts[pts.length - 1].date.slice(5)}</span>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-2.5 text-[11px] text-gray-500 mt-2">
+                <div className="font-semibold text-gray-700 mb-1">เกณฑ์ Longevity (Peter Attia)</div>
+                <div className="flex justify-between"><span>Excellent</span><span className="text-green-600 font-semibold">≥50</span></div>
+                <div className="flex justify-between mt-0.5"><span>Good</span><span className="text-amber-500 font-semibold">42–49</span></div>
+                <div className="flex justify-between mt-0.5"><span>Average</span><span className="text-gray-500">35–41</span></div>
+              </div>
+            </Card>
+          </div>
+        )
+      })()}
+
+      {/* Biological Age Trend */}
+      {(() => {
+        const records = [...(allRecords ?? [])].sort((a: any, b: any) => a.date.localeCompare(b.date))
+        if (records.length < 2) return null
+        const dailyMap = new Map((allDaily ?? []).map((d: any) => [d.date, d]))
+        const bioPoints: { date: string; bio: number }[] = []
+        for (const r of records) {
+          const daily: any = dailyMap.get(r.date) ?? [...dailyMap.values()].sort((a: any, b: any) => Math.abs(new Date(a.date).getTime() - new Date(r.date).getTime()) - Math.abs(new Date(b.date).getTime() - new Date(r.date).getTime()))[0]
+          const bmi = profile?.heightCm && daily?.weightKg ? (daily.weightKg as number) / Math.pow(profile.heightCm / 100, 2) : undefined
+          const bio = calcBiologicalAge(age, {
+            systolic: r.systolic, glucose: r.glucose, ldl: r.ldl, hdl: r.hdl,
+            vo2max: daily?.vo2max as number | undefined, sleepHours: daily?.sleepTotal as number | undefined, steps: daily?.steps as number | undefined, bmi,
+          })
+          bioPoints.push({ date: r.date, bio })
+        }
+        if (bioPoints.length < 2) return null
+        const latest = bioPoints[bioPoints.length - 1]
+        const trend = latest.bio - bioPoints[0].bio
+        const diff = latest.bio - age
+        const diffColor = diff < -1 ? 'text-green-600' : diff > 1 ? 'text-red-500' : 'text-gray-500'
+        return (
+          <div className="mx-4 mt-3">
+            <Card>
+              <div className="flex items-center justify-between mb-1">
+                <CardTitle>🧬 อายุชีวภาพ (เทรนด์)</CardTitle>
+                <span className={`text-[11px] font-bold ${diffColor}`}>
+                  {diff < 0 ? `ดีกว่า ${Math.abs(diff).toFixed(1)} ปี` : diff > 0 ? `สูงกว่า ${diff.toFixed(1)} ปี` : 'เท่ากับอายุจริง'}
+                </span>
+              </div>
+              <div className="flex items-end gap-3 mb-2">
+                <div>
+                  <div className={`text-[28px] font-bold leading-none ${diffColor}`}>{latest.bio.toFixed(1)}</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">ปี (อายุจริง {age})</div>
+                </div>
+                <div className="mb-1 text-[13px] text-gray-400">
+                  {bioPoints.length >= 2 && (
+                    <span className={`font-semibold ${trend < 0 ? 'text-green-600' : trend > 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                      {trend < 0 ? '▼' : trend > 0 ? '▲' : '—'}{Math.abs(trend).toFixed(1)} ปี
+                    </span>
+                  )}
+                  <span className="text-gray-400 ml-1">จาก {bioPoints[0].date.slice(0, 7)}</span>
+                </div>
+              </div>
+              <Sparkline points={bioPoints.map(p => p.bio)} color={diff < 0 ? '#16a34a' : '#ef4444'} height={44} />
+              <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                <span>{bioPoints[0].date.slice(5)}</span>
+                <span>{latest.date.slice(5)}</span>
+              </div>
+            </Card>
           </div>
         )
       })()}
