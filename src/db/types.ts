@@ -156,7 +156,7 @@ export interface FinanceRecord {
   amount: number
   category: string
   description: string
-  source: 'kasikorn' | 'bangkok_bank' | 'credit_card' | 'manual' | 'other'
+  source: 'kasikorn' | 'bangkok_bank' | 'scb' | 'credit_card' | 'manual' | 'other'
   rawRef?: string
   cardName?: string  // e.g. 'KTC', 'KBANK', 'KRUNGSRI', 'UOB'
 }

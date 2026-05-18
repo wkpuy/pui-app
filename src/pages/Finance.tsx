@@ -189,10 +189,17 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     try {
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
       const messages = await fetchGmailBankMessages(tokens.accessToken)
-      let added = 0, skipped = 0, noAmount = 0
+      let added = 0, skipped = 0
+      const unparsedFroms: string[] = []
       for (const msg of messages) {
-        const txn = parseBankEmail(msg)
-        if (!txn.rawRef || txn.amount <= 0) { noAmount++; continue }
+        const txn: any = parseBankEmail(msg)
+        if (!txn.rawRef || txn.amount <= 0) {
+          if (txn.fromHeader) {
+            const domain = txn.fromHeader.match(/@([^\s>]+)/)?.[1] ?? txn.fromHeader
+            unparsedFroms.push(domain)
+          }
+          continue
+        }
         const exists = await db.financeRecords.where('rawRef').equals(txn.rawRef).count()
         if (exists > 0) { skipped++; continue }
         await db.financeRecords.add({
@@ -206,7 +213,8 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         })
         added++
       }
-      const detail = `(พบ ${messages.length} อีเมล${noAmount > 0 ? ` · อ่านยอดไม่ได้ ${noAmount}` : ''}${skipped > 0 ? ` · ซ้ำ ${skipped}` : ''})`
+      const fromsNote = unparsedFroms.length > 0 ? ` · จาก: ${[...new Set(unparsedFroms)].slice(0, 2).join(', ')}` : ''
+      const detail = `(พบ ${messages.length} อีเมล${unparsedFroms.length > 0 ? ` · อ่านยอดไม่ได้ ${unparsedFroms.length}` : ''}${skipped > 0 ? ` · ซ้ำ ${skipped}` : ''}${fromsNote})`
       setToast({
         text: added > 0
           ? `เพิ่ม ${added} รายการ ${detail}`

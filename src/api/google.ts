@@ -173,52 +173,73 @@ export function parseBankEmail(message: any) {
 
   const isKBank = from.includes('kasikornbank.com') || from.includes('kbank.co.th')
   const isBBL = from.includes('bangkokbank.com') || from.includes('bbl.co.th')
+  const isSCB = from.includes('scb.co.th') || from.includes('scbeasy')
 
   let amount = 0
   let description = subject
   let txDate = ''
 
+  // Universal amount regex fallbacks (try in order)
+  const amountPatterns = [
+    /จำนวนเงิน\s*\(บาท\)\s*[:：]?\s*([\d,]+\.?\d*)/,
+    /จำนวนเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
+    /ยอดเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
+    /THB\s*([\d,]+\.?\d*)/i,
+    /([\d,]+\.?\d{2})\s*บาท/,
+  ]
+  // Date regex fallbacks
+  const datePatterns = [
+    /วันที่ทำรายการ\s*[:：]?\s*(\d{2})\/(\d{2})\/(\d{4})/,
+    /วันที่\s*[:：]?\s*(\d{2})\/(\d{2})\/(\d{4})/,
+    /(\d{2})\/(\d{2})\/(\d{4})/,
+  ]
+
   if (isKBank) {
-    // KBank: "จำนวนเงิน (บาท): 22.00"
     const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)\s*:\s*([\d,]+\.?\d*)/)
     amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
-
-    // Date: "วันที่ทำรายการ: 14/05/2026"
     const dateMatch = body.match(/วันที่ทำรายการ\s*:\s*(\d{2})\/(\d{2})\/(\d{4})/)
     if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
-
-    // Payee
     const payeeMatch = body.match(/เพื่อเข้าบัญชีบริษัท\s*:\s*(.+)/)
       ?? body.match(/ชื่อบัญชี\s*:\s*(.+)/)
     if (payeeMatch) description = payeeMatch[1].trim()
-
   } else if (isBBL) {
-    // Bangkok Bank: "จำนวนเงิน (บาท)\t 6,770.00"
     const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)[^\d]*([\d,]+\.?\d*)/)
     amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
-
-    // Date from subject: "(08/05/2026 @ 17:03:53)"
     const dateMatch = subject.match(/(\d{2})\/(\d{2})\/(\d{4})/)
     if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
-
-    // Payee
     const payeeMatch = body.match(/ชื่อบริษัท \/ ชื่อผู้ให้บริการ\s+(.+)/)
       ?? body.match(/ชื่อบัญชี\s+(.+)/)
     if (payeeMatch) description = payeeMatch[1].trim()
   }
 
-  // Fallback: parse date from email header
+  // Fallback: try universal patterns if specific ones failed
+  if (amount === 0) {
+    for (const pat of amountPatterns) {
+      const m = body.match(pat) || subject.match(pat)
+      if (m) { amount = parseFloat(m[1].replace(/,/g, '')); if (amount > 0) break }
+    }
+  }
+  if (!txDate) {
+    for (const pat of datePatterns) {
+      const m = body.match(pat) || subject.match(pat)
+      if (m) { txDate = `${m[3]}-${m[2]}-${m[1]}`; break }
+    }
+  }
+  // Last resort: email Date header
   if (!txDate) {
     try { txDate = new Date(dateHeader).toISOString().slice(0, 10) } catch { txDate = '' }
   }
+
+  const source = isKBank ? 'kasikorn' : isBBL ? 'bangkok_bank' : isSCB ? 'scb' : 'other'
 
   return {
     date: txDate || new Date().toISOString().slice(0, 10),
     amount,
     type: 'expense' as 'income' | 'expense',
     description,
-    source: isKBank ? 'kasikorn' : 'bangkok_bank',
+    source,
     rawRef: message.id as string,
+    fromHeader: from,
   }
 }
 
