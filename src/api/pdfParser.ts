@@ -1,10 +1,27 @@
-// Legacy build for iOS compatibility, Vite ?worker bundles the worker as classic Worker
+// Legacy build for iOS compatibility
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
-// @ts-ignore — Vite virtual ?worker import
-import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker'
 
 const getDocument = pdfjsLib.getDocument
-pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker()
+
+// Lazy worker init — module loads even if worker setup throws on iOS
+let workerInitPromise: Promise<void> | null = null
+async function ensureWorker() {
+  if (workerInitPromise) return workerInitPromise
+  workerInitPromise = (async () => {
+    // Strategy 1: Vite-bundled worker (classic JS via ?worker)
+    try {
+      // @ts-ignore — Vite virtual ?worker import
+      const { default: PdfWorker } = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker')
+      pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker()
+      return
+    } catch (e) {
+      console.warn('Vite worker bundle failed, trying CDN:', e)
+    }
+    // Strategy 2: CDN .mjs worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/legacy/build/pdf.worker.min.mjs'
+  })()
+  return workerInitPromise
+}
 
 export interface CreditCardTransaction {
   transDate: string
@@ -68,6 +85,7 @@ function groupIntoRows(pieces: TextPiece[], tolerance = 4): TextPiece[][] {
 }
 
 async function extractLines(buffer: ArrayBuffer): Promise<string[]> {
+  await ensureWorker()
   const pdf = await getDocument({ data: buffer }).promise
   const lines: string[] = []
 
