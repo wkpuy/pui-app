@@ -127,7 +127,7 @@ function parseKTC(lines: string[]): CreditCardTransaction[] {
     const isPayment = /PAYMENT/i.test(description)
 
     let installmentInfo: { current: number; total: number } | undefined
-    const inst = description.match(/^(\d{2})\/(\d{2})\s+/)
+    const inst = description.match(/^(\d{2,3})\/(\d{2,3})\s+/)
     if (inst) installmentInfo = { current: parseInt(inst[1]), total: parseInt(inst[2]) }
 
     txns.push({ transDate, postDate, description, amount, isPayment, bankName: 'KTC', installmentInfo })
@@ -177,8 +177,8 @@ function parseKBANK(lines: string[]): CreditCardTransaction[] {
       const isPayment = /PAYMENT/i.test(description)
 
       let installmentInfo: { current: number; total: number } | undefined
-      const instEnd = description.match(/:?\s*(\d{2})\/(\d{2})\s*$/)
-      const instStart = description.match(/^(\d{2})\/(\d{2})\s+/)
+      const instEnd = description.match(/:?\s*(\d{2,3})\/(\d{2,3})\s*$/)
+      const instStart = description.match(/^(\d{2,3})\/(\d{2,3})\s+/)
       const inst = instEnd || instStart
       if (inst) installmentInfo = { current: parseInt(inst[1]), total: parseInt(inst[2]) }
 
@@ -238,17 +238,27 @@ function parseUOB(lines: string[]): CreditCardTransaction[] {
 }
 
 // ─── KRUNGSRI ────────────────────────────────────────────────────────────────
-// Best-effort: similar to KTC/KBANK DD/MM/YY format
+// Handles both regular transactions and "ผ่อนชำระรายเดือน" installment section
+// Installment column "งวดที่เรียกเก็บ": 003/006 (3-digit) or 03/06 (2-digit)
+
+const INST_RE = /(\d{2,3})\/(\d{2,3})/
 
 function parseKRUNGSRI(lines: string[]): CreditCardTransaction[] {
   const txns: CreditCardTransaction[] = []
   let active = false
+  let inInstallmentSection = false
 
   for (const line of lines) {
+    // Detect installment section header
+    if (/ผ่อนชำระรายเดือน|INSTALLMENT|แผนผ่อนชำระ/i.test(line)) {
+      inInstallmentSection = true
+    }
     if (!active && (/วันที่รายการ|TRANS.*DATE|TRANSACTION DATE|PREVIOUS BALANCE/i.test(line))) {
       active = true; continue
     }
-    if (active && /ยอดรวม|TOTAL AMOUNT|ยอดค้างชำระ|NEW BALANCE/i.test(line)) break
+    if (active && /ยอดรวม|TOTAL AMOUNT|ยอดค้างชำระ|NEW BALANCE/i.test(line)) {
+      active = false; inInstallmentSection = false; continue
+    }
     if (!active) continue
 
     const parts = line.trim().split(/\s+/)
@@ -271,12 +281,34 @@ function parseKRUNGSRI(lines: string[]): CreditCardTransaction[] {
     }
     if (!transDate) continue
 
-    const description = parts.slice(descStart, parts.length - 1).join(' ')
+    // Amount is last token; installment col (งวดที่เรียกเก็บ) may be second-to-last
+    let descEnd = parts.length - 1
+    let installmentInfo: { current: number; total: number } | undefined
+
+    // Check if second-to-last token is an installment number e.g. 003/006
+    const possibleInst = parts[descEnd - 1]
+    if (possibleInst && INST_RE.test(possibleInst) && !DATE_SLASH.test(possibleInst)) {
+      const m = possibleInst.match(INST_RE)!
+      installmentInfo = { current: parseInt(m[1]), total: parseInt(m[2]) }
+      descEnd-- // exclude installment col from description
+    }
+
+    const description = parts.slice(descStart, descEnd).join(' ')
     const isPayment = /PAYMENT/i.test(description)
 
-    let installmentInfo: { current: number; total: number } | undefined
-    const inst = description.match(/^(\d{2})\/(\d{2})\s+/) || description.match(/:?\s*(\d{2})\/(\d{2})\s*$/)
-    if (inst) installmentInfo = { current: parseInt(inst[1]), total: parseInt(inst[2]) }
+    // Also detect inline installment prefix/suffix: "03/06 DESC" or "DESC 03/06"
+    if (!installmentInfo) {
+      const instStart = description.match(/^(\d{2,3})\/(\d{2,3})\s+/)
+      const instEnd = description.match(/:?\s*(\d{2,3})\/(\d{2,3})\s*$/)
+      const inst = instStart || instEnd
+      if (inst) installmentInfo = { current: parseInt(inst[1]), total: parseInt(inst[2]) }
+    }
+
+    // Force installmentInfo if we're inside installment section
+    if (inInstallmentSection && !installmentInfo) {
+      const anyInst = line.match(INST_RE)
+      if (anyInst) installmentInfo = { current: parseInt(anyInst[1]), total: parseInt(anyInst[2]) }
+    }
 
     txns.push({ transDate, postDate, description, amount, isPayment, bankName: 'KRUNGSRI', installmentInfo })
   }

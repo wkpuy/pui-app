@@ -294,12 +294,49 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
           added++
         }
       })
+      // Auto-create/update installments from transactions with installmentInfo
+      let instAdded = 0, instUpdated = 0
+      const instTxns = toSave.filter(t => t.installmentInfo && Math.abs(t.amount) > 0)
+      for (const txn of instTxns) {
+        const { current, total } = txn.installmentInfo!
+        // Clean name: remove "03/06" prefix/suffix and interest notation like INT00.74%
+        const cleanName = txn.description
+          .replace(/^\d{2,3}\/\d{2,3}\s+/, '')
+          .replace(/\s*:?\s*\d{2,3}\/\d{2,3}\s*$/, '')
+          .replace(/\s+INT\d+\.?\d*%/i, '')
+          .trim() || txn.description
+
+        const allInst = await db.installments.toArray()
+        const existing = allInst.find(i =>
+          i.totalInstallments === total &&
+          (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
+        )
+
+        if (!existing) {
+          await db.installments.add({
+            name: cleanName,
+            totalAmount: Math.abs(txn.amount) * total,
+            monthlyAmount: Math.abs(txn.amount),
+            totalInstallments: total,
+            paidInstallments: current,
+            startDate: txn.transDate || fallbackDate,
+            category: txn.category || 'ช้อปปิ้ง',
+            source: 'credit_card',
+          })
+          instAdded++
+        } else if (existing.paidInstallments < current) {
+          await db.installments.update(existing.id!, { paidInstallments: current })
+          instUpdated++
+        }
+      }
+
       setImportState(null)
+      const instNote = instAdded > 0 ? ` · เพิ่มผ่อน ${instAdded} รายการ` : instUpdated > 0 ? ` · อัปเดตผ่อน ${instUpdated}` : ''
       setToast({
         text: added > 0
-          ? `บันทึก ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`
-          : `ทั้งหมดเป็นรายการซ้ำ (${skipped})`,
-        type: added > 0 ? 'success' : 'error',
+          ? `บันทึก ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}${instNote}`
+          : `ทั้งหมดเป็นรายการซ้ำ (${skipped})${instNote}`,
+        type: added > 0 || instAdded > 0 ? 'success' : 'error',
       })
     } catch (e: any) {
       console.error('saveImport error:', e)
