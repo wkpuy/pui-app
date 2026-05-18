@@ -189,10 +189,10 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     try {
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
       const messages = await fetchGmailBankMessages(tokens.accessToken)
-      let added = 0, skipped = 0
+      let added = 0, skipped = 0, noAmount = 0
       for (const msg of messages) {
         const txn = parseBankEmail(msg)
-        if (!txn.rawRef || txn.amount <= 0) continue
+        if (!txn.rawRef || txn.amount <= 0) { noAmount++; continue }
         const exists = await db.financeRecords.where('rawRef').equals(txn.rawRef).count()
         if (exists > 0) { skipped++; continue }
         await db.financeRecords.add({
@@ -206,10 +206,13 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         })
         added++
       }
+      const detail = `(พบ ${messages.length} อีเมล${noAmount > 0 ? ` · อ่านยอดไม่ได้ ${noAmount}` : ''}${skipped > 0 ? ` · ซ้ำ ${skipped}` : ''})`
       setToast({
         text: added > 0
-          ? `เพิ่ม ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`
-          : skipped > 0 ? `ไม่มีรายการใหม่ (${skipped} รายการซ้ำ)` : 'ไม่พบรายการจากธนาคาร',
+          ? `เพิ่ม ${added} รายการ ${detail}`
+          : messages.length === 0
+            ? 'ไม่พบอีเมลธนาคารใน 48 ชม. ที่ผ่านมา'
+            : `ไม่มีรายการใหม่ ${detail}`,
         type: added > 0 ? 'success' : 'error',
       })
     } catch (e: any) {

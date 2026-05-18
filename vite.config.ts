@@ -26,10 +26,20 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        skipWaiting: true,
+        clientsClaim: true,
+        globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/generativelanguage\.googleapis\.com\/.*/,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/gmail\.googleapis\.com\/.*/,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^https:\/\/www\.googleapis\.com\/.*/,
             handler: 'NetworkOnly',
           },
         ],
