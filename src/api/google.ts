@@ -131,25 +131,38 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
     })
 }
 
-// sinceDate: YYYY/MM/DD (Gmail format). If omitted → 48h back (for auto-sync).
+// sinceDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
 export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
-  const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 48 * 3600 * 1000)}`
-  const query = encodeURIComponent(`from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th OR bbl.co.th OR scb.co.th) ${timeFilter}`)
+  const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
+  // Include KPLUS subject patterns + sender domains
+  const query = encodeURIComponent(
+    `(from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th OR bbl.co.th OR scb.co.th)` +
+    ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"))` +
+    ` ${timeFilter}`
+  )
   const res = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=100`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
+  if (res.status === 401) throw new Error('TOKEN_EXPIRED')
   const data = await res.json()
   if (!data.messages) return []
 
-  const details = await Promise.all(
-    data.messages.slice(0, 60).map((m: any) =>
-      fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }).then(r => r.json())
+  // Fetch full message details in batches of 5 to avoid rate limits
+  const results: any[] = []
+  const ids = data.messages.slice(0, 60)
+  for (let i = 0; i < ids.length; i += 5) {
+    const batch = ids.slice(i, i + 5)
+    const batchResults = await Promise.all(
+      batch.map((m: any) =>
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then(r => r.json())
+      )
     )
-  )
-  return details
+    results.push(...batchResults)
+  }
+  return results
 }
 
 function toGmailDate(ms: number): string {
@@ -172,63 +185,92 @@ export function parseBankEmail(message: any) {
   const from: string = headers.find((h: any) => h.name === 'From')?.value || ''
   const dateHeader: string = headers.find((h: any) => h.name === 'Date')?.value || ''
   const bodyRaw = extractEmailBody(message.payload)
-  const body = bodyRaw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ')
 
+  // Decode HTML entities — numeric (&#40; → '('), hex (&#x28; → '('), and named
+  const body = bodyRaw
+    .replace(/<[^>]*>/g, ' ')               // strip HTML tags
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&lpar;/g, '(').replace(/&rpar;/g, ')')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // KPLUS@kasikornbank.com subjects: "Result of Funds Transfer (Success)"
+  // "Result of PromptPay Funds Transfer (Success)", "Result of Bill Payment (Success)"
   const isKBank = from.includes('kasikornbank.com') || from.includes('kbank.co.th')
+              || /Result of .*(Transfer|Payment)/i.test(subject)
   const isBBL = from.includes('bangkokbank.com') || from.includes('bbl.co.th')
   const isSCB = from.includes('scb.co.th') || from.includes('scbeasy')
 
   let amount = 0
   let description = subject
   let txDate = ''
+  let rawRef: string = message.id as string
 
-  // Universal amount regex fallbacks (try in order)
-  const amountPatterns = [
-    /จำนวนเงิน\s*\(บาท\)\s*[:：]?\s*([\d,]+\.?\d*)/,
-    /จำนวนเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
-    /ยอดเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
-    /THB\s*([\d,]+\.?\d*)/i,
-    /([\d,]+\.?\d{2})\s*บาท/,
-  ]
-  // Date regex fallbacks
-  const datePatterns = [
-    /วันที่ทำรายการ\s*[:：]?\s*(\d{2})\/(\d{2})\/(\d{4})/,
-    /วันที่\s*[:：]?\s*(\d{2})\/(\d{2})\/(\d{4})/,
-    /(\d{2})\/(\d{2})\/(\d{4})/,
-  ]
-
+  // ── KBank / KPLUS ──────────────────────────────────────────────
   if (isKBank) {
-    const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)\s*:\s*([\d,]+\.?\d*)/)
+    // Amount: "จำนวนเงิน (บาท): 80.00"  — parens may have been HTML-encoded
+    const amtMatch = body.match(/จำนวนเงิน\s*[(（]บาท[)）]\s*[:\s]\s*([\d,]+\.?\d*)/)
+                  ?? body.match(/จำนวนเงิน[^0-9]*([\d,]+\.?\d*)\s*บาท/)
     amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
-    const dateMatch = body.match(/วันที่ทำรายการ\s*:\s*(\d{2})\/(\d{2})\/(\d{4})/)
+
+    // Date: "วันที่ทำรายการ: 18/05/2026  18:08:43"
+    const dateMatch = body.match(/วันที่ทำรายการ\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/)
     if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
-    const payeeMatch = body.match(/เพื่อเข้าบัญชีบริษัท\s*:\s*(.+)/)
-      ?? body.match(/ชื่อบัญชี\s*:\s*(.+)/)
-    if (payeeMatch) description = payeeMatch[1].trim()
+
+    // Transaction ref → use as rawRef for stable dedup
+    const refMatch = body.match(/เลขที่รายการ\s*[:\s]\s*([A-Z0-9]{6,30})/i)
+    if (refMatch) rawRef = `kbank_${refMatch[1]}`
+
+    // Description: ชื่อบัญชี → stop before next label (จำนวนเงิน / ค่าธรรมเนียม / ยอด)
+    const nameMatch = body.match(/ชื่อบัญชี\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด|เลขที่|วันที่))/)
+                   ?? body.match(/ชื่อผู้รับเงิน\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด))/)
+                   ?? body.match(/เพื่อเข้าบัญชีบริษัท\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ชื่อบัญชี|ค่าธรรมเนียม))/)
+                   ?? body.match(/ชำระให้\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด))/)
+    if (nameMatch) description = nameMatch[1].trim()
+
+  // ── Bangkok Bank ────────────────────────────────────────────────
   } else if (isBBL) {
-    const amtMatch = body.match(/จำนวนเงิน\s*\(บาท\)[^\d]*([\d,]+\.?\d*)/)
+    const amtMatch = body.match(/จำนวนเงิน\s*[(（]บาท[)）][^\d]*([\d,]+\.?\d*)/)
+                  ?? body.match(/จำนวนเงิน[^0-9]*([\d,]+\.?\d*)\s*บาท/)
     amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
-    const dateMatch = subject.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+    const dateMatch = body.match(/วันที่ทำรายการ\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/)
+                   ?? subject.match(/(\d{2})\/(\d{2})\/(\d{4})/)
     if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
-    const payeeMatch = body.match(/ชื่อบริษัท \/ ชื่อผู้ให้บริการ\s+(.+)/)
-      ?? body.match(/ชื่อบัญชี\s+(.+)/)
+    const payeeMatch = body.match(/ชื่อบริษัท \/ ชื่อผู้ให้บริการ\s+(.+?)(?=\s+\S+\s*:|\s*$)/)
+                    ?? body.match(/ชื่อบัญชี\s+(.+?)(?=\s+\S+\s*:|\s*$)/)
     if (payeeMatch) description = payeeMatch[1].trim()
   }
 
-  // Fallback: try universal patterns if specific ones failed
+  // ── Universal fallbacks if specific parsing failed ──────────────
   if (amount === 0) {
-    for (const pat of amountPatterns) {
-      const m = body.match(pat) || subject.match(pat)
+    const patterns = [
+      /จำนวนเงิน\s*[(（]บาท[)）]\s*[:\s]\s*([\d,]+\.?\d*)/,
+      /จำนวนเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
+      /ยอดเงิน[^\d]*([\d,]+\.?\d*)\s*บาท/,
+      /THB\s*([\d,]+\.?\d*)/i,
+      /([\d,]+\.\d{2})\s*บาท/,
+    ]
+    for (const pat of patterns) {
+      const m = body.match(pat) ?? subject.match(pat)
       if (m) { amount = parseFloat(m[1].replace(/,/g, '')); if (amount > 0) break }
     }
   }
   if (!txDate) {
-    for (const pat of datePatterns) {
-      const m = body.match(pat) || subject.match(pat)
+    const patterns = [
+      /วันที่ทำรายการ\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/,
+      /วันที่\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/,
+      /(\d{2})\/(\d{2})\/(\d{4})/,
+    ]
+    for (const pat of patterns) {
+      const m = body.match(pat) ?? subject.match(pat)
       if (m) { txDate = `${m[3]}-${m[2]}-${m[1]}`; break }
     }
   }
-  // Last resort: email Date header
   if (!txDate) {
     try { txDate = new Date(dateHeader).toISOString().slice(0, 10) } catch { txDate = '' }
   }
@@ -241,7 +283,7 @@ export function parseBankEmail(message: any) {
     type: 'expense' as 'income' | 'expense',
     description,
     source,
-    rawRef: message.id as string,
+    rawRef,
     fromHeader: from,
   }
 }
