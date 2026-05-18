@@ -138,6 +138,7 @@ export async function fetchGmailBankMessages(accessToken: string, sinceDate?: st
   const query = encodeURIComponent(
     `(from:(kasikornbank.com OR bangkokbank.com)` +
     ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"` +
+    ` OR "แจ้งผลการทำรายการโอนเงิน" OR "แจ้งผลการทำรายการชำระเงิน" OR "แจ้งผลการทำรายการ"` +
     ` OR "ยืนยันการชำระเงิน" OR "ยืนยันการโอนเงิน" OR "ยืนยันการเติมเงิน"))` +
     ` ${timeFilter}`
   )
@@ -230,10 +231,14 @@ export function parseBankEmail(message: any) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  // KBank: KPLUS@kasikornbank.com — "Result of Funds Transfer/PromptPay/Bill Payment (Success)"
-  // BBL:   BualuangmBanking@bangkokbank.com — "ยืนยันการชำระเงิน/โอนเงิน/เติมเงินพร้อมเพย์"
+  // KBank: KPLUS@kasikornbank.com
+  //   EN subject: "Result of Funds Transfer / PromptPay / Bill Payment (Success)"
+  //   TH subject: "แจ้งผลการทำรายการโอนเงิน (สำเร็จ)" / "แจ้งผลการทำรายการชำระเงิน (สำเร็จ)"
+  // BBL: BualuangmBanking@bangkokbank.com
+  //   TH subject: "ยืนยันการชำระเงิน/โอนเงิน/เติมเงินพร้อมเพย์"
   const isKBank = from.includes('kasikornbank.com')
               || /Result of .*(Transfer|Payment)/i.test(subject)
+              || /แจ้งผลการทำรายการ/.test(subject)
   const isBBL = from.includes('bangkokbank.com')
 
   let amount = 0
