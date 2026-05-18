@@ -214,7 +214,7 @@ export function parseBankEmail(message: any) {
   return {
     date: txDate || new Date().toISOString().slice(0, 10),
     amount,
-    type: 'expense' as const, // these emails are always outgoing transactions
+    type: 'expense' as 'income' | 'expense',
     description,
     source: isKBank ? 'kasikorn' : 'bangkok_bank',
     rawRef: message.id as string,
