@@ -110,6 +110,9 @@ export default function Health() {
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
   const latestRecord = useLiveQuery(() => db.healthRecords.orderBy('date').last())
   const latestDaily = useLiveQuery(() => db.healthDaily.orderBy('date').last())
+  const latestWhoopDaily = useLiveQuery(() =>
+    db.healthDaily.orderBy('date').reverse().filter(d => d.source === 'whoop').first()
+  )
   const allRecords = useLiveQuery(() => db.healthRecords.orderBy('date').reverse().toArray())
   const allDaily = useLiveQuery(() => db.healthDaily.orderBy('date').reverse().toArray())
 
@@ -152,7 +155,7 @@ export default function Health() {
 
       <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
-          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} checkups={checkups} profile={profile} allDaily={allDaily} allRecords={allRecords} />
+          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} latestWhoopDaily={latestWhoopDaily} checkups={checkups} profile={profile} allDaily={allDaily} allRecords={allRecords} />
         )}
         {tab === 'myplan' && <MyPlanTab age={age} latestRecord={latestRecord} />}
         {tab === 'longevity' && (
@@ -377,7 +380,8 @@ function Sparkline({ points, color = '#6366f1', height = 48 }: { points: number[
   )
 }
 
-function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile, allDaily, allRecords }: any) {
+function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, checkups, profile, allDaily, allRecords }: any) {
+  const whoop = latestWhoopDaily ?? latestDaily
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
   const basicKeys = ['systolic', 'diastolic', 'heartRate', 'glucose', 'hba1c', 'ldl', 'hdl', 'triglycerides']
@@ -407,49 +411,49 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile,
       )}
 
       {/* WHOOP Summary */}
-      {latestDaily && (latestDaily.recoveryScore !== undefined || latestDaily.hrv !== undefined || latestDaily.strain !== undefined) && (
+      {whoop && (whoop.recoveryScore !== undefined || whoop.hrv !== undefined || whoop.strain !== undefined) && (
         <div className="mx-4 mt-3">
           <Card className="!bg-gray-950 !text-white">
             <div className="flex items-center justify-between mb-3">
               <div className="text-[13px] font-bold text-white">WHOOP</div>
-              <div className="text-[11px] text-gray-400">{latestDaily.date}</div>
+              <div className="text-[11px] text-gray-400">{whoop.date}</div>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {latestDaily.recoveryScore !== undefined && (
+              {whoop.recoveryScore !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className={`text-[18px] font-bold ${latestDaily.recoveryScore >= 67 ? 'text-green-400' : latestDaily.recoveryScore >= 34 ? 'text-yellow-400' : 'text-red-400'}`}>
-                    {latestDaily.recoveryScore}%
+                  <div className={`text-[18px] font-bold ${whoop.recoveryScore >= 67 ? 'text-green-400' : whoop.recoveryScore >= 34 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {whoop.recoveryScore}%
                   </div>
                   <div className="text-[10px] text-gray-400 mt-0.5">Recovery</div>
                 </div>
               )}
-              {latestDaily.hrv !== undefined && (
+              {whoop.hrv !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-blue-400">{latestDaily.hrv}</div>
+                  <div className="text-[18px] font-bold text-blue-400">{whoop.hrv}</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">HRV (ms)</div>
                 </div>
               )}
-              {latestDaily.strain !== undefined && (
+              {whoop.strain !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-orange-400">{latestDaily.strain}</div>
+                  <div className="text-[18px] font-bold text-orange-400">{whoop.strain}</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">Strain</div>
                 </div>
               )}
-              {latestDaily.restingHeartRate !== undefined && (
+              {whoop.restingHeartRate !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-pink-400">{latestDaily.restingHeartRate}</div>
+                  <div className="text-[18px] font-bold text-pink-400">{whoop.restingHeartRate}</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">RHR (bpm)</div>
                 </div>
               )}
-              {latestDaily.sleepPerformance !== undefined && (
+              {whoop.sleepPerformance !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-indigo-400">{latestDaily.sleepPerformance}%</div>
+                  <div className="text-[18px] font-bold text-indigo-400">{whoop.sleepPerformance}%</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">Sleep</div>
                 </div>
               )}
-              {latestDaily.bloodOxygen !== undefined && (
+              {whoop.bloodOxygen !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-cyan-400">{latestDaily.bloodOxygen}%</div>
+                  <div className="text-[18px] font-bold text-cyan-400">{whoop.bloodOxygen}%</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">SpO₂</div>
                 </div>
               )}
