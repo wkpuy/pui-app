@@ -500,6 +500,20 @@ export async function listDriveFiles(accessToken: string) {
   return listBillFiles(accessToken)
 }
 
+// Browse all PDFs in Drive (for manual selection)
+export async function browseDrivePdfs(accessToken: string, searchName = ''): Promise<DriveFile[]> {
+  let q = `mimeType='application/pdf' and trashed=false`
+  if (searchName.trim()) q += ` and name contains '${searchName.trim().replace(/'/g, "\\'")}'`
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime,size,webViewLink)&orderBy=modifiedTime+desc&pageSize=50`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  if (res.status === 401) throw new Error('TOKEN_EXPIRED')
+  if (!res.ok) throw new Error(`Drive error: ${res.status}`)
+  const data = await res.json()
+  return data.files ?? []
+}
+
 export async function downloadDriveFile(accessToken: string, fileId: string): Promise<ArrayBuffer> {
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,

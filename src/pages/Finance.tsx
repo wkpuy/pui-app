@@ -7,7 +7,7 @@ import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components
 import { formatCurrency } from '../utils/calculations'
 import type { FinanceRecord, Installment } from '../db/types'
 import { listBillFiles } from '../api/google'
-import type { BillFile } from '../api/google'
+import type { BillFile, DriveFile } from '../api/google'
 import type { CreditCardTransaction } from '../api/pdfParser'
 
 const CATEGORIES_EXPENSE = [
@@ -138,6 +138,13 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
   const [manualBank, setManualBank] = useState('KTC')
   const [manualParsing, setManualParsing] = useState(false)
 
+  // Drive browser
+  const [showDriveBrowser, setShowDriveBrowser] = useState(false)
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([])
+  const [driveLoading, setDriveLoading] = useState(false)
+  const [driveSearch, setDriveSearch] = useState('')
+  const [driveError, setDriveError] = useState<string | null>(null)
+
   // Track already-synced Drive file IDs via rawRef
   const syncedFileIds = useLiveQuery(async () => {
     const records = await db.financeRecords.filter(r => !!r.rawRef && (r.rawRef as string).length > 10).toArray()
@@ -250,6 +257,68 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
     } finally {
       setImporting(null)
+    }
+  }
+
+  async function openDriveBrowser() {
+    if (!tokens?.accessToken) return
+    setShowDriveBrowser(true)
+    setDriveError(null)
+    setDriveSearch('')
+    setDriveLoading(true)
+    try {
+      const { browseDrivePdfs } = await import('../api/google')
+      const files = await browseDrivePdfs(tokens.accessToken)
+      setDriveFiles(files)
+    } catch (e: any) {
+      setDriveError(e.message ?? 'โหลด Drive ไม่สำเร็จ')
+    } finally {
+      setDriveLoading(false)
+    }
+  }
+
+  async function searchDrive(name: string) {
+    if (!tokens?.accessToken) return
+    setDriveLoading(true)
+    setDriveError(null)
+    try {
+      const { browseDrivePdfs } = await import('../api/google')
+      const files = await browseDrivePdfs(tokens.accessToken, name)
+      setDriveFiles(files)
+    } catch (e: any) {
+      setDriveError(e.message ?? 'ค้นหาไม่สำเร็จ')
+    } finally {
+      setDriveLoading(false)
+    }
+  }
+
+  async function importFromDrive(file: DriveFile) {
+    if (!tokens?.accessToken) return
+    setShowDriveBrowser(false)
+    setManualParsing(true)
+    let step = 'init'
+    try {
+      step = 'load-module'
+      const [{ downloadDriveFile }, { parseBillPdf }] = await Promise.all([
+        import('../api/google'),
+        import('../api/pdfParser'),
+      ])
+      step = 'download'
+      const buffer = await downloadDriveFile(tokens.accessToken, file.id)
+      step = 'parse-pdf'
+      const txns = await parseBillPdf(buffer, manualBank)
+      step = 'build-state'
+      const txnsWithCat = txns.map(t => ({ ...t, category: detectCat(t.description) }))
+      setImportState({
+        file: { id: `drive_${file.id}`, name: file.name, bankName: manualBank, webViewLink: file.webViewLink },
+        txns: txnsWithCat,
+        selected: new Array(txnsWithCat.length).fill(true),
+      })
+    } catch (e: any) {
+      console.error('Drive PDF import failed at step:', step, e)
+      setToast({ text: `[${step}] ${e?.message ?? String(e)}`, type: 'error' })
+    } finally {
+      setManualParsing(false)
     }
   }
 
@@ -585,27 +654,42 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       {/* Manual PDF upload */}
       <div className="mx-4 mb-4">
         <Card className="!bg-orange-50">
-          <div className="text-[13px] font-semibold text-orange-700 mb-1">📲 อัปโหลด PDF จากเครื่อง</div>
-          <div className="text-[12px] text-orange-600 mb-2.5">เลือกไฟล์บิลบัตรเครดิตจาก iPhone โดยตรง</div>
-          <div className="flex gap-2 mb-2.5">
-            <select
-              value={manualBank}
-              onChange={e => setManualBank(e.target.value)}
-              className="flex-1 border border-orange-200 bg-white rounded-xl px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none"
-            >
-              <option value="KTC">KTC</option>
-              <option value="KBANK">กสิกร (KBANK)</option>
-              <option value="KRUNGSRI">กรุงศรี (KRUNGSRI)</option>
-              <option value="UOB">ยูโอบี (UOB)</option>
-            </select>
+          <div className="text-[13px] font-semibold text-orange-700 mb-1">📄 นำเข้า PDF บัตรเครดิต</div>
+          <div className="text-[12px] text-orange-600 mb-2.5">เลือกธนาคาร แล้วเลือกไฟล์ PDF</div>
+
+          {/* Bank selector */}
+          <select
+            value={manualBank}
+            onChange={e => setManualBank(e.target.value)}
+            className="w-full border border-orange-200 bg-white rounded-xl px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none mb-2"
+          >
+            <option value="KTC">KTC</option>
+            <option value="KBANK">กสิกร (KBANK)</option>
+            <option value="KRUNGSRI">กรุงศรี (KRUNGSRI)</option>
+            <option value="UOB">ยูโอบี (UOB)</option>
+          </select>
+
+          {/* Two source buttons */}
+          <div className="flex gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={manualParsing}
-              className="flex-1 bg-orange-500 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 disabled:opacity-60"
+              className="flex-1 bg-orange-500 text-white text-[13px] font-semibold px-3 py-2.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
             >
-              {manualParsing ? '⏳ กำลังอ่าน...' : '📂 เลือกไฟล์ PDF'}
+              {manualParsing ? '⏳' : '📱'} จากเครื่อง
+            </button>
+            <button
+              onClick={openDriveBrowser}
+              disabled={manualParsing || !tokens?.accessToken}
+              className="flex-1 bg-green-600 text-white text-[13px] font-semibold px-3 py-2.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center justify-center gap-1.5"
+            >
+              {manualParsing ? '⏳' : '☁️'} Google Drive
             </button>
           </div>
+          {!tokens?.accessToken && (
+            <div className="mt-1.5 text-[11px] text-orange-400">ต่อ Google ก่อนถึงจะเลือกจาก Drive ได้</div>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -613,9 +697,93 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) importPdfFile(f) }}
           />
-          <div className="text-[11px] text-orange-400">รองรับ KTC · KBANK · กรุงศรี · UOB</div>
+          <div className="text-[11px] text-orange-400 mt-1.5">รองรับ KTC · KBANK · กรุงศรี · UOB</div>
         </Card>
       </div>
+
+      {/* Drive Browser Modal */}
+      {showDriveBrowser && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end">
+          <div className="w-full bg-white rounded-t-3xl max-h-[88vh] flex flex-col">
+            {/* Header */}
+            <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[16px] font-bold text-gray-900">☁️ เลือกไฟล์จาก Google Drive</div>
+                <button onClick={() => setShowDriveBrowser(false)} className="text-gray-400 text-xl w-8 h-8 flex items-center justify-center">✕</button>
+              </div>
+              {/* Bank reminder */}
+              <div className="flex items-center gap-2 bg-orange-50 rounded-xl px-3 py-2 mb-3">
+                <span className="text-[12px] text-orange-600">ธนาคาร:</span>
+                <select
+                  value={manualBank}
+                  onChange={e => setManualBank(e.target.value)}
+                  className="flex-1 bg-transparent text-[13px] font-bold text-orange-700 outline-none"
+                >
+                  <option value="KTC">KTC</option>
+                  <option value="KBANK">กสิกร (KBANK)</option>
+                  <option value="KRUNGSRI">กรุงศรี (KRUNGSRI)</option>
+                  <option value="UOB">ยูโอบี (UOB)</option>
+                </select>
+              </div>
+              {/* Search */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={driveSearch}
+                  onChange={e => setDriveSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchDrive(driveSearch)}
+                  placeholder="ค้นหาชื่อไฟล์..."
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-[13px] outline-none"
+                />
+                <button
+                  onClick={() => searchDrive(driveSearch)}
+                  disabled={driveLoading}
+                  className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 disabled:opacity-60"
+                >
+                  {driveLoading ? '⏳' : '🔍'}
+                </button>
+              </div>
+            </div>
+
+            {/* File list */}
+            <div className="flex-1 overflow-y-auto">
+              {driveLoading && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <div className="text-3xl mb-2">⏳</div>
+                  <div className="text-[13px]">กำลังโหลด...</div>
+                </div>
+              )}
+              {driveError && (
+                <div className="mx-4 mt-4 bg-red-50 rounded-xl p-3 text-[13px] text-red-600">❌ {driveError}</div>
+              )}
+              {!driveLoading && !driveError && driveFiles.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <div className="text-3xl mb-2">📂</div>
+                  <div className="text-[13px]">ไม่พบไฟล์ PDF</div>
+                </div>
+              )}
+              {!driveLoading && driveFiles.map(file => (
+                <button
+                  key={file.id}
+                  onClick={() => importFromDrive(file)}
+                  className="w-full px-4 py-3.5 border-b border-gray-50 flex items-center gap-3 active:bg-indigo-50 text-left"
+                >
+                  <span className="text-2xl flex-shrink-0">📄</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 truncate">{file.name}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5 flex gap-2">
+                      {file.size && <span>{(parseInt(file.size) / 1024).toFixed(0)} KB</span>}
+                      {file.createdTime && <span>{new Date(file.createdTime).toLocaleDateString('th-TH')}</span>}
+                    </div>
+                  </div>
+                  <span className="text-indigo-500 text-[12px] font-bold flex-shrink-0">เลือก →</span>
+                </button>
+              ))}
+              <div className="h-6" />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PDF Import Modal */}
       {importState && (
