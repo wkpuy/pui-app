@@ -530,7 +530,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
               <div>
                 <div className="text-[16px] font-bold text-gray-900">นำเข้ารายการ</div>
                 <div className="text-[11px] text-gray-400 mt-0.5">
-                  {importState.file.bankName} · {importState.file.dateStr.slice(6, 8)}/{importState.file.dateStr.slice(4, 6)}/{importState.file.dateStr.slice(0, 4)}
+                  {importState.file.bankName} · {importState.file.dateStr ? `${importState.file.dateStr.slice(6, 8)}/${importState.file.dateStr.slice(4, 6)}/${importState.file.dateStr.slice(0, 4)}` : importState.file.name}
                 </div>
               </div>
               <button onClick={() => setImportState(null)} className="text-gray-400 text-xl w-8 h-8 flex items-center justify-center">✕</button>
