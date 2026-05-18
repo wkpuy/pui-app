@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>pui-app</title>
+    <script>
+      // GitHub Pages SPA redirect trick
+      // Encode the current path/search/hash into the query string, then redirect to root.
+      // The root index.html will decode it and push the correct route via history.replaceState.
+      var l = window.location
+      var segmentCount = 1 // number of path segments in the repo name, e.g. /pui-app/ = 1
+      var path = l.pathname.slice(1).split('/').slice(segmentCount).join('/')
+      var query = (path ? '?p=/' + path : '') +
+                  (l.search ? (path ? '&q=' : '?q=') + l.search.slice(1) : '') +
+                  l.hash
+      l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + segmentCount).join('/') + '/' +
+        query)
+    </script>
+  </head>
+  <body></body>
+</html>

@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>pui-app</title>
+    <script>
+      // Restore route encoded by 404.html redirect
+      (function () {
+        var l = window.location
+        var params = new URLSearchParams(l.search)
+        var p = params.get('p')    // path
+        var q = params.get('q')    // original search string (minus leading ?)
+        if (p) {
+          var newSearch = q ? '?' + q : ''
+          var newUrl = l.protocol + '//' + l.host + l.pathname.replace(/\/$/, '') +
+                       p + newSearch + l.hash
+          window.history.replaceState(null, '', newUrl)
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
