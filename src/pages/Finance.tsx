@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
@@ -100,7 +100,7 @@ export default function Finance() {
 }
 
 interface ImportState {
-  file: BillFile
+  file: { id: string; name: string; bankName: string; dateStr?: string; webViewLink?: string }
   txns: Array<CreditCardTransaction & { category: string }>
   selected: boolean[]
 }
@@ -130,6 +130,11 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
   const [importState, setImportState] = useState<ImportState | null>(null)
   const [importing, setImporting] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  // Manual PDF upload
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [manualBank, setManualBank] = useState('KTC')
+  const [manualParsing, setManualParsing] = useState(false)
 
   // Track already-synced Drive file IDs via rawRef
   const syncedFileIds = useLiveQuery(async () => {
@@ -232,6 +237,27 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
       setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
     } finally {
       setImporting(null)
+    }
+  }
+
+  async function importPdfFile(file: File) {
+    setManualParsing(true)
+    try {
+      const { parseBillPdf } = await import('../api/pdfParser')
+      const buffer = await file.arrayBuffer()
+      const txns = await parseBillPdf(buffer, manualBank)
+      const txnsWithCat = txns.map(t => ({ ...t, category: detectCat(t.description) }))
+      const fileId = `manual_${Date.now()}`
+      setImportState({
+        file: { id: fileId, name: file.name, bankName: manualBank },
+        txns: txnsWithCat,
+        selected: new Array(txnsWithCat.length).fill(true),
+      })
+    } catch (e: any) {
+      setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
+    } finally {
+      setManualParsing(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -458,6 +484,41 @@ function OverviewTab({ income, expense, net, expenseByCategory, month }: {
           {billsSynced && bills.length === 0 && (
             <div className="mt-2 text-[12px] text-purple-500">ไม่พบไฟล์ Bill_*.pdf ใน folder</div>
           )}
+        </Card>
+      </div>
+
+      {/* Manual PDF upload */}
+      <div className="mx-4 mb-4">
+        <Card className="!bg-orange-50">
+          <div className="text-[13px] font-semibold text-orange-700 mb-1">📲 อัปโหลด PDF จากเครื่อง</div>
+          <div className="text-[12px] text-orange-600 mb-2.5">เลือกไฟล์บิลบัตรเครดิตจาก iPhone โดยตรง</div>
+          <div className="flex gap-2 mb-2.5">
+            <select
+              value={manualBank}
+              onChange={e => setManualBank(e.target.value)}
+              className="flex-1 border border-orange-200 bg-white rounded-xl px-3 py-2 text-[13px] font-semibold text-gray-700 outline-none"
+            >
+              <option value="KTC">KTC</option>
+              <option value="KBANK">กสิกร (KBANK)</option>
+              <option value="KRUNGSRI">กรุงศรี (KRUNGSRI)</option>
+              <option value="UOB">ยูโอบี (UOB)</option>
+            </select>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={manualParsing}
+              className="flex-1 bg-orange-500 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 disabled:opacity-60"
+            >
+              {manualParsing ? '⏳ กำลังอ่าน...' : '📂 เลือกไฟล์ PDF'}
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) importPdfFile(f) }}
+          />
+          <div className="text-[11px] text-orange-400">รองรับ KTC · KBANK · กรุงศรี · UOB</div>
         </Card>
       </div>
 
