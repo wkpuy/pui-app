@@ -249,7 +249,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       const buffer = await file.arrayBuffer()
       const txns = await parseBillPdf(buffer, manualBank)
       const txnsWithCat = txns.map(t => ({ ...t, category: detectCat(t.description) }))
-      const fileId = `manual_${Date.now()}`
+      const fileId = `manual_${manualBank}_${file.name}`
       setImportState({
         file: { id: fileId, name: file.name, bankName: manualBank },
         txns: txnsWithCat,
@@ -269,9 +269,9 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     if (toSave.length === 0) return
     const fallbackDate = new Date().toISOString().slice(0, 10)
     try {
-      // dedupe against existing records with same rawRef (allow re-import)
-      const existing = await db.financeRecords.where('rawRef').equals(importState.file.id).toArray()
-      const existingKeys = new Set(existing.map(r => `${r.date}|${r.amount}|${r.description}`))
+      // dedupe globally by date|amount|description across all credit_card records
+      const allCCRecords = await db.financeRecords.where('source').equals('credit_card').toArray()
+      const existingKeys = new Set(allCCRecords.map(r => `${r.date}|${r.amount}|${r.description}`))
 
       let added = 0
       let skipped = 0
