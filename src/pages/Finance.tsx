@@ -255,10 +255,18 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
 
   async function importPdfFile(file: File) {
     setManualParsing(true)
+    let step = 'init'
     try {
-      const { parseBillPdf } = await import('../api/pdfParser')
+      step = 'load-module'
+      const mod = await import('../api/pdfParser')
+      if (typeof mod.parseBillPdf !== 'function') {
+        throw new Error(`parseBillPdf is ${typeof mod.parseBillPdf}, exports: ${Object.keys(mod).join(',')}`)
+      }
+      step = 'read-file'
       const buffer = await file.arrayBuffer()
-      const txns = await parseBillPdf(buffer, manualBank)
+      step = 'parse-pdf'
+      const txns = await mod.parseBillPdf(buffer, manualBank)
+      step = 'build-state'
       const txnsWithCat = txns.map(t => ({ ...t, category: detectCat(t.description) }))
       const fileId = `manual_${manualBank}_${file.name}`
       setImportState({
@@ -267,7 +275,9 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         selected: new Array(txnsWithCat.length).fill(true),
       })
     } catch (e: any) {
-      setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
+      console.error('PDF import failed at step:', step, e)
+      const errMsg = e?.message ?? String(e)
+      setToast({ text: `[${step}] ${errMsg}`, type: 'error' })
     } finally {
       setManualParsing(false)
       if (fileInputRef.current) fileInputRef.current.value = ''

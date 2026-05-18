@@ -1,7 +1,8 @@
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+// Use legacy build for maximum iOS Safari compatibility (classic worker, no ESM modules in worker)
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 
-// Hardcoded CDN worker URL — bypasses SW caching, no dependency on version export
-GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
+const getDocument = pdfjsLib.getDocument
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs'
 
 export interface CreditCardTransaction {
   transDate: string
