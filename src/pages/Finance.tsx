@@ -107,8 +107,8 @@ interface ImportState {
 
 function detectCat(description: string): string {
   const d = description.toUpperCase()
-  if (/GRABFOOD|GRAB\.COM|GRAB FOOD/.test(d)) return 'อาหาร'
-  if (/MRT|BTS|BEM|GRAB|TAXI|BOLT|TRANSPORT/.test(d)) return 'เดินทาง'
+  if (/GRAB/.test(d)) return 'อาหาร'
+  if (/MRT|BTS|BEM|TAXI|BOLT|TRANSPORT/.test(d)) return 'เดินทาง'
   if (/HOSPITAL|CLINIC|PHARMACY|MEDICAL|SIRIRAJ|BANGPO|SAMITIVEJ|RAJDHEV/.test(d)) return 'สุขภาพ'
   if (/APPLE|NETFLIX|SPOTIFY|ANTHROPIC|GOOGLE|YOUTUBE|WINDSURF|LUMEN|COWAY|2C2P.*SUBSCRIPTION/.test(d)) return 'Subscription'
   if (/SHOPEE|LAZADA|CENTRAL|LOTUS|TOPS|UNIQLO|AMAZON/.test(d)) return 'ช้อปปิ้ง'
