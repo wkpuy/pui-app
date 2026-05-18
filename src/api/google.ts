@@ -134,10 +134,11 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
 // sinceDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
 export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
   const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
-  // Include KPLUS subject patterns + sender domains
+  // Sender domains + subject keywords for KPLUS (KBank) and BBL
   const query = encodeURIComponent(
     `(from:(kasikornbank.com OR bangkokbank.com OR kbank.co.th OR bbl.co.th OR scb.co.th)` +
-    ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"))` +
+    ` OR subject:("Result of Funds Transfer" OR "Result of PromptPay" OR "Result of Bill Payment"` +
+    ` OR "ยืนยันการชำระเงิน" OR "ยืนยันการโอนเงิน" OR "ยืนยันการเติมเงิน"))` +
     ` ${timeFilter}`
   )
   const res = await fetch(
@@ -163,6 +164,36 @@ export async function fetchGmailBankMessages(accessToken: string, sinceDate?: st
     results.push(...batchResults)
   }
   return results
+}
+
+// Thai full month names (BBL uses พ.ศ. dates like "8 พฤษภาคม 2569")
+const THAI_MONTHS_FULL: Record<string, string> = {
+  มกราคม: '01', กุมภาพันธ์: '02', มีนาคม: '03', เมษายน: '04',
+  พฤษภาคม: '05', มิถุนายน: '06', กรกฎาคม: '07', สิงหาคม: '08',
+  กันยายน: '09', ตุลาคม: '10', พฤศจิกายน: '11', ธันวาคม: '12',
+}
+
+// Parse Thai Buddhist-era date string → "YYYY-MM-DD" (AD)
+// Handles: "8 พฤษภาคม 2569", "08/05/2569", "08/05/2026"
+function parseThaiDate(s: string): string {
+  // "DD MMMM BBBB" Thai full month
+  const fullMatch = s.match(/(\d{1,2})\s+([฀-๿]+)\s+(\d{4})/)
+  if (fullMatch) {
+    const mm = THAI_MONTHS_FULL[fullMatch[2]]
+    if (mm) {
+      const rawYear = parseInt(fullMatch[3])
+      const year = rawYear > 2400 ? rawYear - 543 : rawYear  // แปลง พ.ศ. → ค.ศ.
+      return `${year}-${mm}-${fullMatch[1].padStart(2, '0')}`
+    }
+  }
+  // "DD/MM/BBBB" or "DD/MM/YYYY"
+  const slashMatch = s.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+  if (slashMatch) {
+    const rawYear = parseInt(slashMatch[3])
+    const year = rawYear > 2400 ? rawYear - 543 : rawYear
+    return `${year}-${slashMatch[2]}-${slashMatch[1]}`
+  }
+  return ''
 }
 
 function toGmailDate(ms: number): string {
@@ -233,16 +264,33 @@ export function parseBankEmail(message: any) {
                    ?? body.match(/ชำระให้\s*[:\s]\s*(.+?)(?=\s+(?:จำนวนเงิน|ค่าธรรมเนียม|ยอด))/)
     if (nameMatch) description = nameMatch[1].trim()
 
-  // ── Bangkok Bank ────────────────────────────────────────────────
+  // ── Bangkok Bank (BualuangmBanking@bangkokbank.com) ─────────────
+  // Subject: "ยืนยันการชำระเงิน" / "ยืนยันการโอนเงิน" / "ยืนยันการเติมเงินพร้อมเพย์"
+  // Amount:  "จำนวนเงิน (บาท)   6,770.00"  (whitespace separator, no colon)
+  // Date:    "วันที่   8 พฤษภาคม 2569 เวลา 17:03:53 น."  (พ.ศ. → subtract 543)
+  // Ref:     "หมายเลขอ้างอิง   405609"
+  // Payee:   "ชื่อบริษัท / ชื่อผู้ให้บริการ   ป้าหมู"  (bill payment)
+  //      or  "ชื่อผู้รับเงิน   นาย ..."              (transfer)
   } else if (isBBL) {
-    const amtMatch = body.match(/จำนวนเงิน\s*[(（]บาท[)）][^\d]*([\d,]+\.?\d*)/)
+    // Amount — no colon, just whitespace between label and value
+    const amtMatch = body.match(/จำนวนเงิน\s*[(（]บาท[)）]\s+([\d,]+\.?\d*)/)
                   ?? body.match(/จำนวนเงิน[^0-9]*([\d,]+\.?\d*)\s*บาท/)
     amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0
-    const dateMatch = body.match(/วันที่ทำรายการ\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/)
-                   ?? subject.match(/(\d{2})\/(\d{2})\/(\d{4})/)
-    if (dateMatch) txDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
-    const payeeMatch = body.match(/ชื่อบริษัท \/ ชื่อผู้ให้บริการ\s+(.+?)(?=\s+\S+\s*:|\s*$)/)
-                    ?? body.match(/ชื่อบัญชี\s+(.+?)(?=\s+\S+\s*:|\s*$)/)
+
+    // Date — Thai full-month พ.ศ. format: "8 พฤษภาคม 2569"
+    const dateSection = body.match(/วันที่\s+(.+?)(?:\s+เวลา|\s+น\.\s|\s*$)/)
+    txDate = dateSection ? parseThaiDate(dateSection[1]) : ''
+
+    // Reference for dedup
+    const refMatch = body.match(/หมายเลขอ้างอิง\s+(\d+)/)
+    if (refMatch) rawRef = `bbl_${refMatch[1]}`
+
+    // Payee — bill payment: "ชื่อบริษัท / ชื่อผู้ให้บริการ   ป้าหมู"
+    //          transfer:     "ชื่อผู้รับเงิน   นาย ..."
+    const payeeMatch =
+      body.match(/ชื่อบริษัท\s*\/\s*ชื่อผู้ให้บริการ\s+(.+?)(?=\s+(?:จาก|จำนวนเงิน|ค่าธรรมเนียม|หมายเลข|บันทึก|เลขที่อ้างอิง|รหัสบริษัท))/)
+   ?? body.match(/ชื่อผู้รับเงิน\s+(.+?)(?=\s+(?:จาก|จำนวนเงิน|ค่าธรรมเนียม|หมายเลข|บันทึก|เลขที่))/)
+   ?? body.match(/ชื่อบัญชี\s+(.+?)(?=\s+(?:จาก|จำนวนเงิน|ค่าธรรมเนียม|หมายเลข))/)
     if (payeeMatch) description = payeeMatch[1].trim()
   }
 
@@ -261,14 +309,20 @@ export function parseBankEmail(message: any) {
     }
   }
   if (!txDate) {
-    const patterns = [
-      /วันที่ทำรายการ\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/,
-      /วันที่\s*[:\s]\s*(\d{2})\/(\d{2})\/(\d{4})/,
-      /(\d{2})\/(\d{2})\/(\d{4})/,
+    // Try DD/MM/YYYY (or DD/MM/BBBB พ.ศ.)
+    const slashPatterns = [
+      /วันที่ทำรายการ\s*[:\s]\s*(\d{2}\/\d{2}\/\d{4})/,
+      /วันที่\s*[:\s]\s*(\d{2}\/\d{2}\/\d{4})/,
+      /(\d{2}\/\d{2}\/\d{4})/,
     ]
-    for (const pat of patterns) {
+    for (const pat of slashPatterns) {
       const m = body.match(pat) ?? subject.match(pat)
-      if (m) { txDate = `${m[3]}-${m[2]}-${m[1]}`; break }
+      if (m) { txDate = parseThaiDate(m[1]); if (txDate) break }
+    }
+    // Try Thai full-month date: "8 พฤษภาคม 2569"
+    if (!txDate) {
+      const thaiMatch = body.match(/(\d{1,2}\s+[฀-๿]+\s+\d{4})/)
+      if (thaiMatch) txDate = parseThaiDate(thaiMatch[1])
     }
   }
   if (!txDate) {
