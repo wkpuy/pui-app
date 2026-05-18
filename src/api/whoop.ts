@@ -1,8 +1,7 @@
 const CLIENT_ID = '2a0f2623-a20c-4b15-985a-e89f7c1f37c4'
-const CLIENT_SECRET = 'df46fd6543619fe9c776dc8ee389dd3be439c79a727f47dc535b46577d2f60fe'
 const REDIRECT_URI = 'https://wkpuy.github.io/pui-app/'
 const AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth'
-const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token'
+const PROXY_URL = 'https://whoop-proxy.kpnmtu.workers.dev/'
 const API_BASE = 'https://api.prod.whoop.com/developer/v1'
 
 const SCOPES = 'read:recovery read:cycles read:sleep read:workout read:profile read:body_measurement offline'
@@ -31,10 +30,9 @@ export async function exchangeCode(code: string): Promise<WhoopTokens> {
     grant_type: 'authorization_code',
     code,
     client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
     redirect_uri: REDIRECT_URI,
   })
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
@@ -53,9 +51,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<WhoopTok
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
     client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
   })
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
