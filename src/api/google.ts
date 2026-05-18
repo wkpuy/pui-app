@@ -168,7 +168,8 @@ export function parseBankEmail(message: any) {
   const subject: string = headers.find((h: any) => h.name === 'Subject')?.value || ''
   const from: string = headers.find((h: any) => h.name === 'From')?.value || ''
   const dateHeader: string = headers.find((h: any) => h.name === 'Date')?.value || ''
-  const body = extractEmailBody(message.payload)
+  const bodyRaw = extractEmailBody(message.payload)
+  const body = bodyRaw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ')
 
   const isKBank = from.includes('kasikornbank.com') || from.includes('kbank.co.th')
   const isBBL = from.includes('bangkokbank.com') || from.includes('bbl.co.th')
@@ -266,10 +267,27 @@ export async function downloadDriveBackup(accessToken: string, fileId: string): 
   return res.json()
 }
 
+function decodeBase64(data: string): string {
+  try {
+    const base64 = data.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4)
+    return atob(padded)
+  } catch { return '' }
+}
+
 function extractEmailBody(payload: any): string {
   if (!payload) return ''
-  if (payload.body?.data) return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'))
+  if (payload.body?.data) return decodeBase64(payload.body.data)
   if (payload.parts) {
+    // Prefer text/plain
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) return decodeBase64(part.body.data)
+    }
+    // Fall back to text/html
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/html' && part.body?.data) return decodeBase64(part.body.data)
+    }
+    // Recurse into nested multipart
     for (const part of payload.parts) {
       const text = extractEmailBody(part)
       if (text) return text

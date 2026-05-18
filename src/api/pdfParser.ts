@@ -1,6 +1,6 @@
-import * as pdfjsLib from 'pdfjs-dist'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
 ).href
@@ -67,7 +67,7 @@ function groupIntoRows(pieces: TextPiece[], tolerance = 4): TextPiece[][] {
 }
 
 async function extractLines(buffer: ArrayBuffer): Promise<string[]> {
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
+  const pdf = await getDocument({ data: buffer }).promise
   const lines: string[] = []
 
   for (let p = 1; p <= pdf.numPages; p++) {
