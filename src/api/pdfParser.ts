@@ -1,7 +1,7 @@
-import { getDocument, GlobalWorkerOptions, version } from 'pdfjs-dist'
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
 
-// Use CDN worker to bypass service worker caching issues on production
-GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.min.mjs`
+// Hardcoded CDN worker URL — bypasses SW caching, no dependency on version export
+GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
 
 export interface CreditCardTransaction {
   transDate: string

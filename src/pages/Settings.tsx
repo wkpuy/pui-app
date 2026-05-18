@@ -393,6 +393,35 @@ export default function Settings() {
             </div>
           </Card>
         </div>
+
+        <SectionLabel>ปัญหาการใช้งาน</SectionLabel>
+        <div className="mx-4 mb-4">
+          <Card>
+            <div className="text-[12px] text-gray-500 mb-2.5">
+              ถ้ามีปัญหาอัปเดต code ไม่ทันใหม่ (เช่น "undefined is not a function") กดปุ่มนี้เพื่อ clear cache และโหลด code ล่าสุด
+            </div>
+            <button
+              onClick={async () => {
+                if (!confirm('ล้าง cache และ reload? (ข้อมูลของคุณจะไม่หาย)')) return
+                try {
+                  if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations()
+                    await Promise.all(regs.map(r => r.unregister()))
+                  }
+                  if ('caches' in window) {
+                    const keys = await caches.keys()
+                    await Promise.all(keys.map(k => caches.delete(k)))
+                  }
+                } finally {
+                  location.reload()
+                }
+              }}
+              className="bg-orange-500 text-white font-bold py-3 rounded-xl text-sm active:scale-95 w-full"
+            >
+              🔄 บังคับอัปเดต App
+            </button>
+          </Card>
+        </div>
         <div className="h-4" />
       </div>
     </div>
