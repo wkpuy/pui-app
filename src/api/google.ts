@@ -284,13 +284,15 @@ export function parseBankEmail(message: any) {
     const refMatch = body.match(/หมายเลขอ้างอิง\s+(\d+)/)
     if (refMatch) rawRef = `bbl_${refMatch[1]}`
 
-    // Payee — bill payment:  "ชื่อบริษัท / ชื่อผู้ให้บริการ   ป้าหมู"
-    //          transfer:      "ชื่อบัญชี   น.ส. วารุณี ก่อทรัพย์"  (followed by ธนาคาร KBANK)
+    // Payee — bill payment:    "ชื่อบริษัท / ชื่อผู้ให้บริการ   ป้าหมู"
+    //          transfer:        "ชื่อบัญชี   น.ส. วารุณี ก่อทรัพย์"
+    //          PromptPay topup: "ชื่อเจ้าของ e-wallet   น.ส. ชาคริยา ศรีเมือง"
     // Stop before next field label so we don't swallow extra columns
-    const STOP = /จาก|จำนวนเงิน|ค่าธรรมเนียม|หมายเลข|บันทึก|เลขที่|รหัสบริษัท|ธนาคาร|ค่าบริการ/
+    const STOP = /จาก|ไปที่|จำนวนเงิน|ค่าธรรมเนียม|หมายเลข|บันทึก|เลขที่|รหัสบริษัท|ธนาคาร|ค่าบริการ|ชื่อผู้ให้บริการ/
     const stopAhead = `(?=\\s+(?:${STOP.source}))`
     const payeeMatch =
       body.match(new RegExp(`ชื่อบริษัท\\s*\\/\\s*ชื่อผู้ให้บริการ\\s+(.+?)${stopAhead}`))
+   ?? body.match(new RegExp(`ชื่อเจ้าของ\\s+e-wallet\\s+(.+?)${stopAhead}`))
    ?? body.match(new RegExp(`ชื่อผู้รับเงิน\\s+(.+?)${stopAhead}`))
    ?? body.match(new RegExp(`ชื่อบัญชี\\s+(.+?)${stopAhead}`))
     if (payeeMatch) description = payeeMatch[1].trim()
