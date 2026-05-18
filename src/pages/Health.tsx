@@ -390,6 +390,58 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, checkups, profile,
         </div>
       )}
 
+      {/* WHOOP Summary */}
+      {latestDaily && (latestDaily.recoveryScore !== undefined || latestDaily.hrv !== undefined || latestDaily.strain !== undefined) && (
+        <div className="mx-4 mt-3">
+          <Card className="!bg-gray-950 !text-white">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[13px] font-bold text-white">WHOOP</div>
+              <div className="text-[11px] text-gray-400">{latestDaily.date}</div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {latestDaily.recoveryScore !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className={`text-[18px] font-bold ${latestDaily.recoveryScore >= 67 ? 'text-green-400' : latestDaily.recoveryScore >= 34 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {latestDaily.recoveryScore}%
+                  </div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">Recovery</div>
+                </div>
+              )}
+              {latestDaily.hrv !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className="text-[18px] font-bold text-blue-400">{latestDaily.hrv}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">HRV (ms)</div>
+                </div>
+              )}
+              {latestDaily.strain !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className="text-[18px] font-bold text-orange-400">{latestDaily.strain}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">Strain</div>
+                </div>
+              )}
+              {latestDaily.restingHeartRate !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className="text-[18px] font-bold text-pink-400">{latestDaily.restingHeartRate}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">RHR (bpm)</div>
+                </div>
+              )}
+              {latestDaily.sleepPerformance !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className="text-[18px] font-bold text-indigo-400">{latestDaily.sleepPerformance}%</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">Sleep</div>
+                </div>
+              )}
+              {latestDaily.bloodOxygen !== undefined && (
+                <div className="bg-gray-800 rounded-xl p-2.5 text-center">
+                  <div className="text-[18px] font-bold text-cyan-400">{latestDaily.bloodOxygen}%</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">SpO₂</div>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Body composition */}
       {latestDaily?.weightKg && (
         <div className="mx-4 mt-3">
@@ -872,6 +924,12 @@ function DailyTab({ daily, onEdit }: { daily: HealthDaily[]; onEdit: (d: HealthD
               { icon: '💧', label: 'น้ำ', val: d.waterMl ? `${(d.waterMl / 1000).toFixed(1)} L` : null },
               { icon: '🔥', label: 'เผาผลาญ', val: d.caloriesBurned?.toString() },
               { icon: '🫀', label: 'VO₂max', val: d.vo2max?.toFixed(1) },
+              { icon: '🟢', label: 'Recovery', val: d.recoveryScore !== undefined ? `${d.recoveryScore}%` : null },
+              { icon: '📡', label: 'HRV', val: d.hrv !== undefined ? `${d.hrv} ms` : null },
+              { icon: '❤️', label: 'RHR', val: d.restingHeartRate !== undefined ? `${d.restingHeartRate} bpm` : null },
+              { icon: '⚡', label: 'Strain', val: d.strain !== undefined ? `${d.strain}` : null },
+              { icon: '🫁', label: 'Sleep%', val: d.sleepPerformance !== undefined ? `${d.sleepPerformance}%` : null },
+              { icon: '🩵', label: 'SpO₂', val: d.bloodOxygen !== undefined ? `${d.bloodOxygen}%` : null },
             ].filter(x => x.val).map(x => (
               <div key={x.label} className="bg-gray-50 rounded-xl p-2 text-center">
                 <div className="text-base">{x.icon}</div>
