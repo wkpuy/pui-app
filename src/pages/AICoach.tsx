@@ -47,6 +47,7 @@ export default function AICoach() {
   const [loading, setLoading] = useState(false)
   const [alerts, setAlerts] = useState<string[]>([])
   const [priceSyncStatus, setPriceSyncStatus] = useState<string | null>(null)
+  const [chatCount, setChatCount] = useState<number>(0)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const settings = useLiveQuery(() => db.settings.toArray().then(r => r[0]))
@@ -63,10 +64,20 @@ export default function AICoach() {
   const emergencyFund = useLiveQuery(() => db.emergencyFund.toArray().then(r => r[0]))
   const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
   const taxRecords = useLiveQuery(() => db.taxRecords.toArray())
+  const storedMessages = useLiveQuery(() => db.chatMessages.count(), [], 0)
 
   useEffect(() => {
     if (settings?.geminiApiKey) initGemini(settings.geminiApiKey)
   }, [settings?.geminiApiKey])
+
+  useEffect(() => { setChatCount(storedMessages ?? 0) }, [storedMessages])
+
+  async function clearChat() {
+    if (!confirm(`ลบประวัติแชททั้งหมด ${storedMessages} ข้อความ?\n\nAI จะลืมบทสนทนาก่อนหน้าทั้งหมด`)) return
+    await db.chatMessages.clear()
+    setMessages([])
+    setAlerts([])
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -469,6 +480,23 @@ ${checkups.map(c => `- ${c}`).join('\n')}
         </div>
       )}
 
+      {/* Chat storage info bar — แสดงเมื่อมีข้อความสะสม */}
+      {chatCount > 0 && (
+        <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-gray-400">💬 ประวัติแชท</span>
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${chatCount > 500 ? 'bg-red-100 text-red-600' : chatCount > 200 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+              {chatCount} ข้อความ
+            </span>
+            {chatCount > 500 && <span className="text-[11px] text-red-500 font-medium">⚠️ เยอะแล้ว ควร clear</span>}
+          </div>
+          <button onClick={clearChat}
+            className="text-[12px] font-semibold text-red-500 bg-red-50 px-3 py-1 rounded-lg active:scale-95">
+            🗑️ Clear Chat
+          </button>
+        </div>
+      )}
+
       {/* Smart Alerts */}
       {alerts.length > 0 && (
         <div className="bg-indigo-50 px-4 py-2 border-b border-indigo-100">
@@ -493,6 +521,18 @@ ${checkups.map(c => `- ${c}`).join('\n')}
                   {p}
                 </button>
               ))}
+            </div>
+            {/* หมายเหตุ: AI ไม่จำบทสนทนาเก่าข้ามเซสชัน */}
+            <div className="mt-6 mx-2 bg-gray-50 rounded-2xl p-3 text-left">
+              <div className="text-[11px] font-bold text-gray-400 mb-1">💡 รู้ไว้</div>
+              <div className="text-[12px] text-gray-500 leading-relaxed">
+                AI จะไม่จำบทสนทนาเก่าข้ามเซสชัน — แต่ <b>รู้ข้อมูลในแอพทั้งหมดเสมอ</b> (พอร์ต, สุขภาพ, การเงิน ฯลฯ) ผ่าน context
+              </div>
+              {chatCount > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 text-[12px] text-gray-400">
+                  มีประวัติแชทสะสม {chatCount} ข้อความใน storage
+                </div>
+              )}
             </div>
           </div>
         )}
