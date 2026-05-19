@@ -465,6 +465,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
             {!whoop?.recoveryScore && !whoop?.hrv && !whoop?.strain && (
               <div className="text-[11px] text-gray-400 py-3 text-center">ยังไม่มีข้อมูล WHOOP — กด Sync เพื่อดึงข้อมูลล่าสุด</div>
             )}
+            {whoop && (
             <div className="grid grid-cols-3 gap-2">
               {whoop.recoveryScore !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
@@ -505,6 +506,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
                 </div>
               )}
             </div>
+            )}
           </Card>
         </div>
       )}
