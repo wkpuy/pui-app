@@ -430,15 +430,20 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     const toSave = importState.txns.filter((_, i) => importState.selected[i])
     if (toSave.length === 0) return
     const fallbackDate = new Date().toISOString().slice(0, 10)
+    const fileId = importState.file.id
+    const bankName = importState.file.bankName
     try {
-      // dedupe globally by date|amount|description across all credit_card records
-      const allCCRecords = await db.financeRecords.where('source').equals('credit_card').toArray()
-      const existingKeys = new Set(allCCRecords.map(r => `${r.date}|${r.amount}|${r.description}`))
-
       let added = 0
       let skipped = 0
-      // atomic: either all succeed or all rollback
-      await db.transaction('rw', db.financeRecords, async () => {
+      let instAdded = 0
+      let instUpdated = 0
+
+      // Single transaction covering both financeRecords + installments
+      await db.transaction('rw', [db.financeRecords, db.installments], async () => {
+        // Build dedup set inside the transaction to get a consistent snapshot
+        const allCCRecords = await db.financeRecords.where('source').equals('credit_card').toArray()
+        const existingKeys = new Set(allCCRecords.map(r => `${r.date}|${r.amount}|${r.description}`))
+
         for (const txn of toSave) {
           const date = txn.transDate || fallbackDate
           const amount = Math.abs(txn.amount)
@@ -452,49 +457,48 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             category: txn.amount < 0 ? 'อื่นๆ' : (txn.category || 'อื่นๆ'),
             description,
             source: 'credit_card',
-            rawRef: importState.file.id,
-            cardName: importState.file.bankName,
+            rawRef: fileId,
+            cardName: bankName,
           })
           existingKeys.add(key)
           added++
         }
-      })
-      // Auto-create/update installments from transactions with installmentInfo
-      let instAdded = 0, instUpdated = 0
-      const instTxns = toSave.filter(t => t.installmentInfo && Math.abs(t.amount) > 0)
-      for (const txn of instTxns) {
-        const { current, total } = txn.installmentInfo!
-        // Clean name: remove "03/06" prefix/suffix and interest notation like INT00.74%
-        const cleanName = txn.description
-          .replace(/^\d{2,3}\/\d{2,3}\s+/, '')
-          .replace(/\s*:?\s*\d{2,3}\/\d{2,3}\s*$/, '')
-          .replace(/\s+INT\d+\.?\d*%/i, '')
-          .trim() || txn.description
 
+        // Auto-create/update installments from transactions with installmentInfo
+        const instTxns = toSave.filter(t => t.installmentInfo && Math.abs(t.amount) > 0)
         const allInst = await db.installments.toArray()
-        const existing = allInst.find(i =>
-          i.totalInstallments === total &&
-          (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
-        )
+        for (const txn of instTxns) {
+          const { current, total } = txn.installmentInfo!
+          const cleanName = txn.description
+            .replace(/^\d{2,3}\/\d{2,3}\s+/, '')
+            .replace(/\s*:?\s*\d{2,3}\/\d{2,3}\s*$/, '')
+            .replace(/\s+INT\d+\.?\d*%/i, '')
+            .trim() || txn.description
 
-        if (!existing) {
-          await db.installments.add({
-            name: cleanName,
-            totalAmount: Math.abs(txn.amount) * total,
-            monthlyAmount: Math.abs(txn.amount),
-            totalInstallments: total,
-            paidInstallments: current,
-            startDate: txn.transDate || fallbackDate,
-            category: txn.category || 'ช้อปปิ้ง',
-            source: 'credit_card',
-            cardName: importState.file.bankName,
-          })
-          instAdded++
-        } else if (existing.paidInstallments < current) {
-          await db.installments.update(existing.id!, { paidInstallments: current })
-          instUpdated++
+          const existing = allInst.find(i =>
+            i.totalInstallments === total &&
+            (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
+          )
+
+          if (!existing) {
+            await db.installments.add({
+              name: cleanName,
+              totalAmount: Math.abs(txn.amount) * total,
+              monthlyAmount: Math.abs(txn.amount),
+              totalInstallments: total,
+              paidInstallments: current,
+              startDate: txn.transDate || fallbackDate,
+              category: txn.category || 'ช้อปปิ้ง',
+              source: 'credit_card',
+              cardName: bankName,
+            })
+            instAdded++
+          } else if (existing.paidInstallments < current) {
+            await db.installments.update(existing.id!, { paidInstallments: current })
+            instUpdated++
+          }
         }
-      }
+      })
 
       setImportState(null)
       const instNote = instAdded > 0 ? ` · เพิ่มผ่อน ${instAdded} รายการ` : instUpdated > 0 ? ` · อัปเดตผ่อน ${instUpdated}` : ''

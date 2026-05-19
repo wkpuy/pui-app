@@ -10,7 +10,8 @@ interface AmortRow {
   month: number
   year: number
   payment: number
-  principal: number
+  principal: number  // base principal portion only (from basePayment − interest)
+  extra: number      // extra principal paid this month
   interest: number
   balance: number
 }
@@ -26,15 +27,17 @@ function calcAmortization(loanAmount: number, annualRate: number, termMonths: nu
   let month = 0
   while (balance > 0 && month < termMonths * 2) {
     month++
-    const extra = getExtra(month)
     const interest = balance * monthlyRate
-    const principal = Math.min(basePayment - interest + extra, balance)
-    balance = balance - principal
+    const basePrincipal = Math.max(0, Math.min(basePayment - interest, balance))
+    const remainingAfterBase = balance - basePrincipal
+    const extra = Math.min(getExtra(month), remainingAfterBase)
+    balance = balance - basePrincipal - extra
     rows.push({
       month,
       year: Math.ceil(month / 12),
-      payment: principal + interest,
-      principal,
+      payment: basePrincipal + extra + interest,
+      principal: basePrincipal,
+      extra,
       interest,
       balance: Math.max(balance, 0),
     })
@@ -125,7 +128,7 @@ export default function Condo() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
       <div className="bg-white flex items-center gap-3 px-4 py-4 border-b border-gray-100">
-        <button onClick={() => navigate('/')} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95">‹</button>
+        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95">‹</button>
         <div className="flex-1 text-[17px] font-bold text-gray-900">สินเชื่อบ้าน / คอนโด</div>
         <button onClick={() => setShowForm(true)} className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95">
           {condo ? 'แก้ไข' : '+ เพิ่ม'}
@@ -220,8 +223,8 @@ export default function Condo() {
 
               {showTable && (
                 <div className="bg-white rounded-2xl overflow-hidden shadow-sm mt-2">
-                  <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2.5 border-b border-gray-100 bg-gray-50 sticky top-0">
-                    <div className="text-[10px] font-bold text-gray-500">งวด</div>
+                  <div className="grid grid-cols-[4rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2.5 border-b border-gray-100 bg-gray-50 sticky top-0">
+                    <div className="text-[10px] font-bold text-gray-500">เดือน</div>
                     <div className="text-[10px] font-bold text-gray-500 text-right">เงินต้น</div>
                     <div className="text-[10px] font-bold text-gray-500 text-right">ดอกเบี้ย</div>
                     <div className="text-[10px] font-bold text-indigo-500 text-right">จ่ายเพิ่ม ✏️</div>
@@ -229,13 +232,17 @@ export default function Condo() {
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {activeRows.map((row, idx) => {
-                      const extraForRow = (monthlyExtras[row.month] ?? condo?.monthlyExtra ?? 0) + (extraSim > 0 ? extraSim : 0)
                       const isEditing = editingMonth === row.month
+                      const rowDate = condo?.startDate ? (() => {
+                        const d = new Date(condo.startDate)
+                        d.setMonth(d.getMonth() + (row.month - 1))
+                        return `${THAI_MONTHS_SHORT[d.getMonth()]} ${String(d.getFullYear() + 543).slice(2)}`
+                      })() : String(row.month)
                       return (
                         <div key={row.month}
-                          className={`grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2 ${idx < activeRows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
+                          className={`grid grid-cols-[4rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2 ${idx < activeRows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
                         >
-                          <div className="text-[11px] text-gray-600 font-medium">{row.month}</div>
+                          <div className="text-[10px] text-gray-600 font-medium leading-tight">{rowDate}</div>
                           <div className="text-[11px] text-right text-green-600">{formatCurrency(row.principal, 0)}</div>
                           <div className="text-[11px] text-right text-red-400">{formatCurrency(row.interest, 0)}</div>
                           <div className="text-right">
@@ -252,9 +259,9 @@ export default function Condo() {
                             ) : (
                               <button
                                 onClick={() => startEditExtra(row.month)}
-                                className={`text-[11px] text-right w-full ${extraForRow > 0 ? 'text-indigo-600 font-semibold' : 'text-gray-300'}`}
+                                className={`text-[11px] text-right w-full ${row.extra > 0 ? 'text-indigo-600 font-semibold' : 'text-gray-300'}`}
                               >
-                                {extraForRow > 0 ? formatCurrency(extraForRow, 0) : '—'}
+                                {row.extra > 0 ? formatCurrency(row.extra, 0) : '—'}
                               </button>
                             )}
                           </div>

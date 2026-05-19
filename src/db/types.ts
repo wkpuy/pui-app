@@ -320,3 +320,11 @@ export interface AppSettings {
   defaultCurrency: 'THB'
   onboardingDone: boolean
 }
+
+export interface NetWorthSnapshot {
+  id?: number
+  date: string        // YYYY-MM (one per month)
+  totalAssets: number
+  totalLiabilities: number
+  netWorth: number
+}

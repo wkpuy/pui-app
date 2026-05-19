@@ -67,12 +67,15 @@ export default function Investment() {
       for (const { inv, apiTicker } of invWithApiTicker) {
         const price = prices[apiTicker]
         if (price) {
-          const totalValue = inv.shares ? parseFloat((price * inv.shares).toFixed(2)) : price
-          await db.investments.update(inv.id!, {
+          const updates: Partial<Investment> = {
             currentPricePerUnit: price,
-            currentValue: totalValue,
             updatedAt: new Date().toISOString(),
-          })
+          }
+          // Only recalculate currentValue when shares are defined; otherwise keep the manually-entered total
+          if (inv.shares && inv.shares > 0) {
+            updates.currentValue = parseFloat((price * inv.shares).toFixed(2))
+          }
+          await db.investments.update(inv.id!, updates)
           updatedCount++
         }
       }

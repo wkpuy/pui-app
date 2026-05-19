@@ -15,11 +15,24 @@ async function runBankAutoSync() {
     const tokens = await db.googleTokens.orderBy('id').last()
     if (!tokens?.accessToken) return
 
-    const emails = await fetchGmailBankMessages(tokens.accessToken) // defaults to 48h
+    // Check token expiry before calling API
+    if (tokens.expiresAt && tokens.expiresAt < Date.now()) {
+      await db.syncLog.add({
+        source: 'gmail',
+        lastSyncAt: new Date().toISOString(),
+        status: 'error',
+        notes: 'Token หมดอายุ — กรุณา Sign In Google ใหม่ในหน้า Settings',
+      })
+      pruneSyncLog()
+      return
+    }
+
+    const emails = await fetchGmailBankMessages(tokens.accessToken)
     let added = 0
+    let skipped = 0
     for (const email of emails) {
       const parsed = parseBankEmail(email)
-      if (!parsed.rawRef || parsed.amount <= 0) continue
+      if (!parsed.rawRef || parsed.amount <= 0) { skipped++; continue }
       const exists = await db.financeRecords.where('rawRef').equals(parsed.rawRef).count()
       if (exists === 0) {
         await db.financeRecords.add({
@@ -31,16 +44,26 @@ async function runBankAutoSync() {
         added++
       }
     }
-    if (added > 0) {
-      await db.syncLog.add({
-        source: 'gmail',
-        lastSyncAt: new Date().toISOString(),
-        status: 'success',
-        notes: `auto-48h: +${added} รายการ`,
-      })
-      pruneSyncLog()
-    }
-  } catch {
-    // Silent fail — don't interrupt the user's app experience
+    await db.syncLog.add({
+      source: 'gmail',
+      lastSyncAt: new Date().toISOString(),
+      status: 'success',
+      notes: added > 0
+        ? `auto: +${added} รายการใหม่${skipped > 0 ? ` (ข้าม ${skipped} รายการ parse ไม่ได้)` : ''}`
+        : `auto: ไม่มีรายการใหม่ (อีเมล ${emails.length} ฉบับ, parse ไม่ได้ ${skipped} รายการ)`,
+    })
+    pruneSyncLog()
+  } catch (e: any) {
+    const msg: string = e?.message ?? String(e)
+    const isTokenExpired = /token.?expired|401|unauthorized/i.test(msg)
+    await db.syncLog.add({
+      source: 'gmail',
+      lastSyncAt: new Date().toISOString(),
+      status: 'error',
+      notes: isTokenExpired
+        ? 'Token หมดอายุ — กรุณา Sign In Google ใหม่ในหน้า Settings'
+        : `auto sync error: ${msg.slice(0, 200)}`,
+    }).catch(() => {})
+    pruneSyncLog().catch(() => {})
   }
 }

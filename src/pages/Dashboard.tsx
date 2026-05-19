@@ -1,30 +1,51 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, memo } from 'react'
 import { db } from '../db'
 import { getAgeDetail, formatCurrency, calcLifeScore } from '../utils/calculations'
 import { Card, Divider } from '../components/Card'
 import { BIOMARKERS } from './Health'
 
+// Ticks once per minute (synced to the minute boundary) — sufficient for
+// showing age in days and greeting text that changes per hour.
+function useClock() {
+  const [time, setTime] = useState(() => new Date())
+  useEffect(() => {
+    const tick = () => setTime(new Date())
+    const msUntilNextMinute = 60_000 - (Date.now() % 60_000)
+    let intervalId: ReturnType<typeof setInterval> | undefined
+    const timeoutId = setTimeout(() => {
+      tick()
+      intervalId = setInterval(tick, 60_000)
+    }, msUntilNextMinute)
+    return () => {
+      clearTimeout(timeoutId)
+      if (intervalId !== undefined) clearInterval(intervalId)
+    }
+  }, [])
+  return time
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
+  const time = useClock()
+
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
   const investments = useLiveQuery(() => db.investments.toArray())
   const latestHealth = useLiveQuery(() => db.healthRecords.orderBy('date').last())
   const latestDaily = useLiveQuery(() => db.healthDaily.orderBy('date').last())
   const retirement = useLiveQuery(() => db.retirementPlan.toArray().then(r => r[0]))
-  const financeRecords = useLiveQuery(() => db.financeRecords.toArray())
+  // Load only current-month finance records from DB — avoids loading entire history
+  const monthKey = time.toISOString().slice(0, 7)
+  const monthFinance = useLiveQuery(
+    () => db.financeRecords.where('date').between(monthKey + '-01', monthKey + '-31', true, true).toArray(),
+    [monthKey],
+  )
 
-  const [time, setTime] = useState(new Date())
   const [showWeightInput, setShowWeightInput] = useState(false)
   const [weightVal, setWeightVal] = useState('')
   const [weightSaving, setWeightSaving] = useState(false)
   const weightRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
 
   useEffect(() => {
     if (showWeightInput) setTimeout(() => weightRef.current?.focus(), 100)
@@ -44,18 +65,28 @@ export default function Dashboard() {
     } finally { setWeightSaving(false) }
   }
 
-  const age = profile ? getAgeDetail(profile.dob) : null
+  // age only changes once per day — memoize on profile + date string
+  const today = time.toISOString().slice(0, 10)
+  const age = useMemo(
+    () => profile ? getAgeDetail(profile.dob) : null,
+    [profile, today], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
-  const totalInvested = investments?.reduce((s, i) => s + i.costBasis, 0) ?? 0
-  const totalCurrent = investments?.reduce((s, i) => s + i.currentValue, 0) ?? 0
-  const gainPct = totalInvested > 0 ? ((totalCurrent - totalInvested) / totalInvested) * 100 : 0
+  // Investment totals — only recalc when DB data changes, not on timer
+  const { totalCurrent, gainPct } = useMemo(() => {
+    const totalInvested = investments?.reduce((s, i) => s + i.costBasis, 0) ?? 0
+    const totalCurrent = investments?.reduce((s, i) => s + i.currentValue, 0) ?? 0
+    const gainPct = totalInvested > 0 ? ((totalCurrent - totalInvested) / totalInvested) * 100 : 0
+    return { totalInvested, totalCurrent, gainPct }
+  }, [investments])
 
-  const retirementPct = retirement
+  const retirementPct = useMemo(() => retirement
     ? Math.min((retirement.currentTotalAssets / ((retirement.monthlyExpenseAtRetirement * 12 * 100) / 4)) * 100, 100)
-    : 0
+    : 0,
+  [retirement])
 
-  // Health Score: เฉลี่ยจากทุก BIOMARKERS ที่มีค่า + ปรับด้วยกิจกรรมรายวัน
-  const healthScore = (() => {
+  // Health score iterates over every biomarker — expensive, memoize on health data
+  const healthScore = useMemo(() => {
     if (!latestHealth) return 50
     const STATUS_PTS: Record<string, number> = { optimal: 100, good: 80, warning: 55, high: 25 }
     let total = 0, count = 0
@@ -67,7 +98,6 @@ export default function Dashboard() {
       count++
     }
     let score = count > 0 ? total / count : 70
-    // Bonus/penalty from daily activity
     if (latestDaily?.sleepTotal !== undefined) {
       if (latestDaily.sleepTotal >= 7) score += 3
       else if (latestDaily.sleepTotal < 6) score -= 5
@@ -78,24 +108,26 @@ export default function Dashboard() {
     }
     if (latestDaily?.vo2max !== undefined && latestDaily.vo2max >= 42) score += 2
     return Math.max(0, Math.min(100, Math.round(score)))
-  })()
+  }, [latestHealth, latestDaily])
 
-  const lifeScore = calcLifeScore({
+  const lifeScore = useMemo(() => calcLifeScore({
     investmentGainPct: gainPct,
     retirementProgress: retirementPct,
     healthScore,
     stepsAvg: latestDaily?.steps,
-  })
+  }), [gainPct, retirementPct, healthScore, latestDaily?.steps])
 
-  const greeting = (() => {
+  const greeting = useMemo(() => {
     const h = time.getHours()
     if (h < 12) return 'อรุณสวัสดิ์'
     if (h < 17) return 'สวัสดีตอนบ่าย'
     return 'สวัสดีตอนเย็น'
-  })()
+  }, [time.getHours()]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const thisMonthIncome = financeRecords?.filter(r => r.type === 'income' && r.date.startsWith(time.toISOString().slice(0, 7))).reduce((s, r) => s + r.amount, 0) ?? 0
-  const thisMonthExpense = financeRecords?.filter(r => r.type === 'expense' && r.date.startsWith(time.toISOString().slice(0, 7))).reduce((s, r) => s + r.amount, 0) ?? 0
+  const { thisMonthIncome, thisMonthExpense } = useMemo(() => ({
+    thisMonthIncome: monthFinance?.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0) ?? 0,
+    thisMonthExpense: monthFinance?.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0) ?? 0,
+  }), [monthFinance])
 
   if (!profile) {
     return (
@@ -159,6 +191,18 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Net Worth banner */}
+      <button
+        onClick={() => navigate('/networth')}
+        className="mx-4 mt-3 bg-gradient-to-r from-violet-50 to-indigo-50 border border-indigo-100 rounded-2xl px-4 py-3 flex items-center justify-between active:scale-[0.98] transition-transform"
+      >
+        <div>
+          <div className="text-[11px] font-semibold text-indigo-400 mb-0.5">Net Worth</div>
+          <NetWorthBadge />
+        </div>
+        <div className="text-indigo-400 text-lg">›</div>
+      </button>
+
       {/* Summary cards */}
       <div className="px-4 py-3 grid grid-cols-2 gap-3">
         <Card onClick={() => navigate('/investment')} className="!p-3">
@@ -193,8 +237,8 @@ export default function Dashboard() {
           {[
             { icon: '💸', label: '+ รายจ่าย', color: 'bg-red-50 text-red-600', onClick: () => navigate('/finance') },
             { icon: '⚖️', label: '+ น้ำหนัก', color: 'bg-sky-50 text-sky-600', onClick: () => setShowWeightInput(v => !v) },
+            { icon: '📅', label: 'ปฏิทิน', color: 'bg-sky-50 text-sky-600', onClick: () => navigate('/calendar') },
             { icon: '💬', label: 'AI Coach', color: 'bg-violet-50 text-violet-600', onClick: () => navigate('/coach') },
-            { icon: '📈', label: 'ลงทุน', color: 'bg-emerald-50 text-emerald-600', onClick: () => navigate('/investment') },
             { icon: '🧾', label: 'ภาษี', color: 'bg-amber-50 text-amber-700', onClick: () => navigate('/tax') },
           ].map(a => (
             <button key={a.label} onClick={a.onClick}
@@ -262,7 +306,7 @@ const AGE_BIOMARKER_REQUIREMENTS: { ageMin: number; keys: string[]; label: strin
   { ageMin: 50, label: 'อายุ 50+', keys: ['mocaScore'] },
 ]
 
-function DailyBriefing({ navigate, age }: { navigate: (path: string) => void; age: number }) {
+const DailyBriefing = memo(function DailyBriefing({ navigate, age }: { navigate: (path: string) => void; age: number }) {
   const investments = useLiveQuery(() => db.investments.toArray())
   const allHealthRecords = useLiveQuery(() => db.healthRecords.orderBy('date').reverse().toArray())
   const installments = useLiveQuery(() => db.installments.toArray())
@@ -392,4 +436,37 @@ function DailyBriefing({ navigate, age }: { navigate: (path: string) => void; ag
       </div>
     </>
   )
+})
+
+function NetWorthBadge() {
+  const investments  = useLiveQuery(() => db.investments.toArray())
+  const condo        = useLiveQuery(() => db.condoMortgage.toArray().then(r => r[0]))
+  const installments = useLiveQuery(() => db.installments.toArray())
+
+  const netWorth = useMemo(() => {
+    const assets = investments?.reduce((s, i) => s + i.currentValue, 0) ?? 0
+    const realEstate = condo?.totalPrice ?? 0
+
+    const r = (condo?.interestRate ?? 0) / 100 / 12
+    const n = (condo?.loanTermYears ?? 0) * 12
+    const loan = condo?.loanAmount ?? 0
+    const base = r > 0 ? loan * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : (n > 0 ? loan / n : 0)
+    const elapsed = condo
+      ? Math.max(0, Math.floor((Date.now() - new Date(condo.startDate).getTime()) / (30.44 * 24 * 3600 * 1000)))
+      : 0
+    let condoBal = loan
+    for (let i = 0; i < Math.min(elapsed, n); i++) {
+      const interest = condoBal * r
+      condoBal = Math.max(0, condoBal - Math.min(condoBal, base - interest + (condo?.monthlyExtra ?? 0)))
+    }
+
+    const instBal = installments
+      ?.filter(i => i.paidInstallments < i.totalInstallments)
+      .reduce((s, i) => s + (i.totalInstallments - i.paidInstallments) * i.monthlyAmount, 0) ?? 0
+
+    return assets + realEstate - condoBal - instBal
+  }, [investments, condo, installments])
+
+  const color = netWorth >= 0 ? 'text-indigo-700' : 'text-red-500'
+  return <div className={`text-[17px] font-bold ${color}`}>{formatCurrency(netWorth)}</div>
 }

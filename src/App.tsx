@@ -14,6 +14,7 @@ import Calendar from './pages/Calendar'
 import Salary from './pages/Salary'
 import Condo from './pages/Condo'
 import Tax from './pages/Tax'
+import NetWorth from './pages/NetWorth'
 import { exchangeCode, saveWhoopTokens } from './api/whoop'
 
 async function handleWhoopCallback(): Promise<string | null> {
@@ -42,9 +43,6 @@ export default function App() {
     <BrowserRouter basename="/pui-app">
       <Routes>
         <Route path="/wrapped" element={<AnnualWrapped />} />
-        <Route path="/salary" element={<Salary />} />
-        <Route path="/condo" element={<Condo />} />
-        <Route path="/tax" element={<Tax />} />
         <Route path="*" element={<MainLayout />} />
       </Routes>
     </BrowserRouter>
@@ -81,6 +79,10 @@ function MainLayout() {
           <Route path="/finance" element={<Finance />} />
           <Route path="/coach" element={<AICoach />} />
           <Route path="/calendar" element={<Calendar />} />
+          <Route path="/salary" element={<Salary />} />
+          <Route path="/condo" element={<Condo />} />
+          <Route path="/tax" element={<Tax />} />
+          <Route path="/networth" element={<NetWorth />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>
