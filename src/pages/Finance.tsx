@@ -52,13 +52,14 @@ interface BudgetConfig {
   utilities: number         // ค่าน้ำ+ไฟ/เดือน
   condoFee: number          // ค่าส่วนกลาง/เดือน
   insurance: number         // ค่าประกัน/เดือน
+  subscription: number      // Subscription/เดือน
   familyBudget: number      // ครอบครัว เป้า/เดือน
   foodBudget: number        // อาหาร เป้า/เดือน
   shoppingBudget: number    // ช็อปปิ้ง เป้า/เดือน
   otherBudget: number       // อื่นๆ เป้า/เดือน
 }
 const BUDGET_DEFAULT: BudgetConfig = {
-  internet: 0, utilities: 0, condoFee: 0, insurance: 0,
+  internet: 0, utilities: 0, condoFee: 0, insurance: 0, subscription: 0,
   familyBudget: 0, foodBudget: 0, shoppingBudget: 0, otherBudget: 0,
 }
 function loadBudget(): BudgetConfig {
@@ -1769,7 +1770,6 @@ function BudgetTab({ month }: { month: string }) {
 
   const salaryRecords = useLiveQuery(() => db.salaryRecords.orderBy('year').toArray())
   const taxRecords = useLiveQuery(() => db.taxRecords.orderBy('year').toArray())
-  const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
   const monthRecords = useLiveQuery(
     () => db.financeRecords.where('date').between(monthStart, monthEnd, true, true).filter(r => r.type === 'expense').toArray(),
     [monthStart, monthEnd]
@@ -1785,10 +1785,7 @@ function BudgetTab({ month }: { month: string }) {
 
   const condoMonthly = config.condoFee
   const insuranceMonthly = config.insurance
-  const subTotal = Math.round(
-    (subscriptions ?? []).filter(s => s.active).reduce((s, x) =>
-      s + (x.frequency === 'monthly' ? x.amount : x.frequency === 'quarterly' ? x.amount / 3 : x.amount / 12), 0)
-  )
+  const subTotal = config.subscription
 
   const actual = (monthRecords ?? []).reduce((acc, r) => {
     acc[r.category] = (acc[r.category] ?? 0) + r.amount; return acc
@@ -1859,7 +1856,7 @@ function BudgetTab({ month }: { month: string }) {
         <BudRow label="ค่าน้ำ / ค่าไฟ" amount={config.utilities} />
         <BudRow label="ค่าส่วนกลาง" amount={condoMonthly} />
         <BudRow label="ค่าประกัน" amount={insuranceMonthly} />
-        <BudRow label="📱 Subscription" amount={subTotal} note="auto" />
+        <BudRow label="📱 Subscription" amount={subTotal} />
         <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
           <span className="text-gray-700">รวมคงที่</span>
           <span className="text-gray-900">−{formatCurrency(totalFixed, 0)}</span>
@@ -1999,6 +1996,7 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
         {labeledField('utilities', 'ค่าน้ำ + ค่าไฟ (รวม)')}
         {labeledField('condoFee', 'ค่าส่วนกลางคอนโด')}
         {labeledField('insurance', 'ค่าประกัน (รวมทุกกรมธรรม์)')}
+        {labeledField('subscription', '📱 Subscription')}
 
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">เป้าหมายรายจ่ายแปรผัน / เดือน</div>
         {labeledField('foodBudget', '🍜 อาหาร')}
