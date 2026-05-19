@@ -109,9 +109,9 @@ export default function Finance() {
       {/* Tabs */}
       <div className="relative bg-white border-b border-gray-100">
         <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
-          {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
+          {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อน'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400'}`}>
+              className={`flex-shrink-0 px-3 py-3 text-[12px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400'}`}>
               {l}
             </button>
           ))}
