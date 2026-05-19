@@ -78,6 +78,7 @@ export default function Finance() {
             expenseByCategory={expenseByCategory}
             monthRecords={monthRecords}
             month={month}
+            installments={installments ?? []}
           />
         )}
         {tab === 'records' && (
@@ -135,8 +136,8 @@ function detectCat(description: string, type?: 'income' | 'expense'): string {
   return type === 'income' ? 'โอนเข้า' : 'อื่นๆ'
 }
 
-function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month }: {
-  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string
+function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month, installments }: {
+  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string; installments: Installment[]
 }) {
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
   const [bills, setBills] = useState<BillFile[]>([])
@@ -533,6 +534,70 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
                 <span className="text-[12px] font-semibold text-gray-500">รวมทุกบัตร</span>
                 <span className="text-[13px] font-bold text-purple-700">{formatCurrency(cardTotal)}</span>
               </div>
+            </div>
+          </>
+        )
+      })()}
+
+      {/* Future installment payment plan */}
+      {(() => {
+        const active = installments.filter(i => i.paidInstallments < i.totalInstallments)
+        if (active.length === 0) return null
+        const baseDate = new Date(month + '-01')
+        const baseYear = baseDate.getFullYear()
+        const baseMonth = baseDate.getMonth()
+        const months: { key: string; label: string; total: number; items: { inst: Installment; remaining: number }[] }[] = []
+        const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+        for (let offset = 0; offset < 12; offset++) {
+          const y = baseYear + Math.floor((baseMonth + offset) / 12)
+          const m = (baseMonth + offset) % 12
+          const key = `${y}-${String(m + 1).padStart(2, '0')}`
+          const items: { inst: Installment; remaining: number }[] = []
+          let total = 0
+          for (const inst of active) {
+            const s = new Date(inst.startDate)
+            const monthDiff = (y - s.getFullYear()) * 12 + (m - s.getMonth())
+            const dueInstallmentNum = monthDiff + 1
+            if (dueInstallmentNum >= 1 && dueInstallmentNum <= inst.totalInstallments && dueInstallmentNum > inst.paidInstallments) {
+              total += inst.monthlyAmount
+              items.push({ inst, remaining: inst.totalInstallments - dueInstallmentNum + 1 })
+            }
+          }
+          if (total > 0) months.push({ key, label: `${thaiMonths[m]} ${y + 543}`, total, items })
+          if (months.length >= 6 && offset >= 5) break
+        }
+        if (months.length === 0) return null
+        const grandTotal = months.reduce((s, m) => s + m.total, 0)
+        return (
+          <>
+            <SectionLabel>📅 แผนผ่อนล่วงหน้า</SectionLabel>
+            <div className="mx-4 mb-4 bg-white rounded-2xl overflow-hidden shadow-sm">
+              <div className="px-4 py-2.5 bg-amber-50 flex justify-between border-b border-amber-100">
+                <span className="text-[12px] font-semibold text-amber-700">ยอดผ่อนรวม {months.length} เดือนข้างหน้า</span>
+                <span className="text-[13px] font-bold text-amber-900">{formatCurrency(grandTotal)}</span>
+              </div>
+              {months.map((mo, idx) => (
+                <details key={mo.key} className={idx < months.length - 1 ? 'border-b border-gray-50' : ''}>
+                  <summary className="px-4 py-3 flex items-center justify-between cursor-pointer list-none">
+                    <span className="text-[13px] font-semibold text-gray-700">{mo.label}</span>
+                    <span className="text-[13px] font-bold text-red-500">{formatCurrency(mo.total)}</span>
+                  </summary>
+                  <div className="bg-gray-50 px-4 py-2">
+                    {mo.items.map((it, i) => (
+                      <div key={i} className="flex items-center justify-between py-1.5 text-[12px]">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-700 truncate">{it.inst.name}</div>
+                          <div className="text-[10px] text-gray-400">
+                            {it.inst.cardName && <span className="mr-1.5">💳 {it.inst.cardName}</span>}
+                            เหลือ {it.remaining}/{it.inst.totalInstallments} งวด
+                          </div>
+                        </div>
+                        <div className="text-[12px] font-bold text-gray-800 ml-2">{formatCurrency(it.inst.monthlyAmount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ))}
             </div>
           </>
         )

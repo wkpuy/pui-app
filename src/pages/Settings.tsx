@@ -5,7 +5,8 @@ import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
 import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
-import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, fetchWhoopData, getValidTokens, saveWhoopTokens, debugWhoopRaw } from '../api/whoop'
+import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, debugWhoopRaw, getValidTokens, saveWhoopTokens } from '../api/whoop'
+import { syncWhoopAndSave } from '../api/whoopSync'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -123,72 +124,14 @@ export default function Settings() {
   }, [])
 
   const syncWhoop = useCallback(async () => {
-    const tokens = loadWhoopTokens()
-    if (!tokens) { setSyncStatus('❌ ยังไม่ได้เชื่อมต่อ WHOOP'); return }
     setWhoopSyncing(true)
-    setWhoopResult(null)
+    setWhoopResult({ text: '⏳ กำลัง sync...', ok: true })
     try {
-      setWhoopResult({ text: '⏳ [1/3] ตรวจสอบ token...', ok: true })
-      let valid: typeof tokens
-      try {
-        valid = await getValidTokens(tokens)
-        saveWhoopTokens(valid)
-      } catch (e: any) {
-        setWhoopResult({ text: `❌ Token ไม่ถูกต้อง: ${e.message} — กรุณา Disconnect แล้ว Connect ใหม่`, ok: false })
-        return
-      }
-
-      setWhoopResult({ text: '⏳ [2/3] กำลังดึงข้อมูลจาก WHOOP...', ok: true })
-      let records: Awaited<ReturnType<typeof fetchWhoopData>>
-      try {
-        records = await fetchWhoopData(valid, 90)
-      } catch (e: any) {
-        setWhoopResult({ text: `❌ เชื่อมต่อ WHOOP API ล้มเหลว: ${e.message}`, ok: false })
-        return
-      }
-
-      setWhoopResult({ text: `⏳ [3/3] บันทึก ${records.length} วัน...`, ok: true })
-      // VO2max estimate from RHR (Uth–Sørensen–Overgaard–Pedersen formula)
-      // VO2max ≈ 15.3 × (HRmax / RHR), HRmax ≈ 208 - 0.7 × age (Tanaka)
-      const ageNow = profile?.dob ? Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25 * 24 * 3600 * 1000)) : null
-      const hrMax = ageNow ? 208 - 0.7 * ageNow : null
-      let added = 0, updated = 0
-      for (const r of records) {
-        const existing = await db.healthDaily.where('date').equals(r.date).first()
-        const vo2max = hrMax && r.restingHeartRate ? Math.round(15.3 * (hrMax / r.restingHeartRate) * 10) / 10 : undefined
-        const payload = {
-          date: r.date,
-          recoveryScore: r.recoveryScore,
-          hrv: r.hrv,
-          restingHeartRate: r.restingHeartRate,
-          sleepTotal: r.sleepTotal,
-          sleepDeep: r.sleepDeep,
-          sleepRem: r.sleepRem,
-          sleepLight: r.sleepLight,
-          sleepPerformance: r.sleepPerformance,
-          respiratoryRate: r.respiratoryRate,
-          strain: r.strain,
-          caloriesBurned: r.caloriesBurned,
-          bloodOxygen: r.bloodOxygen,
-          vo2max,
-          source: 'whoop',
-        }
-        if (existing) {
-          await db.healthDaily.update(existing.id!, { ...payload, id: undefined })
-          updated++
-        } else {
-          await db.healthDaily.add(payload)
-          added++
-        }
-      }
-      await db.syncLog.add({ source: 'whoop', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} ใหม่, ${updated} อัปเดต` })
-      if (records.length === 0) {
-        setWhoopResult({ text: '⚠️ ไม่มีข้อมูลจาก WHOOP API', ok: false })
-      } else if (added === 0 && updated === 0) {
-        setWhoopResult({ text: `ℹ️ ข้อมูลเป็นปัจจุบันแล้ว (พบ ${records.length} วัน)`, ok: true })
-      } else {
-        setWhoopResult({ text: `✅ +${added} วันใหม่${updated > 0 ? ` อัปเดต ${updated}` : ''} จาก ${records.length} วัน`, ok: true })
-      }
+      const result = await syncWhoopAndSave(90)
+      setWhoopResult({
+        text: result.ok ? `✅ ${result.message}${result.total ? ` (${result.total} วัน)` : ''}` : `❌ ${result.message}`,
+        ok: result.ok,
+      })
     } finally {
       setWhoopSyncing(false)
     }

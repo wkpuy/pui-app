@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import type { HealthRecord, HealthDaily } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, StatusTag } from '../components/Card'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
+import { loadWhoopTokens } from '../api/whoop'
+import { syncWhoopAndSave } from '../api/whoopSync'
 
 // ── Biomarker definitions ──────────────────────────────────────────────────
 interface BiomarkerDef {
@@ -106,6 +108,28 @@ export default function Health() {
   const [showDailyForm, setShowDailyForm] = useState(false)
   const [editRecord, setEditRecord] = useState<HealthRecord | null>(null)
   const [editDaily, setEditDaily] = useState<HealthDaily | null>(null)
+  const [whoopSyncing, setWhoopSyncing] = useState(false)
+  const [whoopMsg, setWhoopMsg] = useState<string | null>(null)
+
+  async function doWhoopSync() {
+    if (!loadWhoopTokens()) return
+    setWhoopSyncing(true)
+    try {
+      const result = await syncWhoopAndSave(90)
+      setWhoopMsg(result.ok ? `✅ ${result.message}` : `❌ ${result.message}`)
+      setTimeout(() => setWhoopMsg(null), 4000)
+    } finally {
+      setWhoopSyncing(false)
+    }
+  }
+
+  useEffect(() => {
+    // Auto-sync WHOOP on first open per session
+    if (!loadWhoopTokens()) return
+    if (sessionStorage.getItem('whoop_health_synced')) return
+    sessionStorage.setItem('whoop_health_synced', '1')
+    doWhoopSync()
+  }, [])
 
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
   const latestRecord = useLiveQuery(() => db.healthRecords.orderBy('date').last())
@@ -155,7 +179,7 @@ export default function Health() {
 
       <div className="flex-1 overflow-y-auto">
         {tab === 'summary' && (
-          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} latestWhoopDaily={latestWhoopDaily} checkups={checkups} profile={profile} allDaily={allDaily} allRecords={allRecords} />
+          <SummaryTab age={age} bioAge={bioAge} latestRecord={latestRecord} latestDaily={latestDaily} latestWhoopDaily={latestWhoopDaily} checkups={checkups} profile={profile} allDaily={allDaily} allRecords={allRecords} onSyncWhoop={doWhoopSync} whoopSyncing={whoopSyncing} whoopMsg={whoopMsg} whoopConnected={!!loadWhoopTokens()} />
         )}
         {tab === 'myplan' && <MyPlanTab age={age} latestRecord={latestRecord} />}
         {tab === 'longevity' && (
@@ -380,7 +404,7 @@ function Sparkline({ points, color = '#6366f1', height = 48 }: { points: number[
   )
 }
 
-function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, checkups, profile, allDaily, allRecords }: any) {
+function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, checkups, profile, allDaily, allRecords, onSyncWhoop, whoopSyncing, whoopMsg, whoopConnected }: any) {
   const whoop = latestWhoopDaily ?? latestDaily
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
@@ -411,13 +435,28 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
       )}
 
       {/* WHOOP Summary */}
-      {whoop && (whoop.recoveryScore !== undefined || whoop.hrv !== undefined || whoop.strain !== undefined) && (
+      {whoopConnected && (
         <div className="mx-4 mt-3">
           <Card className="!bg-gray-950 !text-white">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-[13px] font-bold text-white">WHOOP</div>
-              <div className="text-[11px] text-gray-400">{whoop.date}</div>
+              <div>
+                <div className="text-[13px] font-bold text-white">WHOOP</div>
+                {whoop?.date && <div className="text-[11px] text-gray-400">ล่าสุด: {whoop.date}</div>}
+              </div>
+              <button
+                onClick={onSyncWhoop}
+                disabled={whoopSyncing}
+                className="text-[11px] font-semibold bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+              >
+                {whoopSyncing ? '⏳ Sync...' : '🔄 Sync'}
+              </button>
             </div>
+            {whoopMsg && (
+              <div className={`text-[11px] mb-2 ${whoopMsg.startsWith('✅') ? 'text-green-400' : 'text-red-400'}`}>{whoopMsg}</div>
+            )}
+            {!whoop?.recoveryScore && !whoop?.hrv && !whoop?.strain && (
+              <div className="text-[11px] text-gray-400 py-3 text-center">ยังไม่มีข้อมูล WHOOP — กด Sync เพื่อดึงข้อมูลล่าสุด</div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               {whoop.recoveryScore !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
@@ -614,7 +653,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
               <div className="flex items-end gap-3 mb-2">
                 <div>
                   <div className={`text-[28px] font-bold leading-none ${statusColor}`}>{latest.toFixed(1)}</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">ml/kg/min</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">ml/kg/min · {pts[pts.length - 1].date.slice(5)}</div>
                 </div>
                 <div className="mb-1 text-[13px] text-gray-400">
                   เฉลี่ย <b className="text-gray-700">{avg}</b>
@@ -1151,7 +1190,6 @@ function DailyTab({ daily, onEdit }: { daily: HealthDaily[]; onEdit: (d: HealthD
               { icon: '😴', label: 'นอนรวม', val: d.sleepTotal ? `${d.sleepTotal} ชม.` : null },
               { icon: '🌊', label: 'Deep', val: d.sleepDeep ? `${d.sleepDeep} ชม.` : null },
               { icon: '💫', label: 'REM', val: d.sleepRem ? `${d.sleepRem} ชม.` : null },
-              { icon: '💧', label: 'น้ำ', val: d.waterMl ? `${(d.waterMl / 1000).toFixed(1)} L` : null },
               { icon: '🔥', label: 'เผาผลาญ', val: d.caloriesBurned?.toString() },
               { icon: '🫀', label: 'VO₂max', val: d.vo2max?.toFixed(1) },
               { icon: '🟢', label: 'Recovery', val: d.recoveryScore !== undefined ? `${d.recoveryScore}%` : null },
@@ -1354,7 +1392,6 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
     sleepDeep: editItem?.sleepDeep?.toString() ?? '',
     sleepRem: editItem?.sleepRem?.toString() ?? '',
     sleepLight: editItem?.sleepLight?.toString() ?? '',
-    waterMl: editItem?.waterMl?.toString() ?? '',
     caloriesBurned: editItem?.caloriesBurned?.toString() ?? '',
     vo2max: editItem?.vo2max?.toString() ?? '',
     distanceKm: editItem?.distanceKm?.toString() ?? '',
@@ -1370,7 +1407,6 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
       sleepDeep: form.sleepDeep ? parseFloat(form.sleepDeep) : undefined,
       sleepRem: form.sleepRem ? parseFloat(form.sleepRem) : undefined,
       sleepLight: form.sleepLight ? parseFloat(form.sleepLight) : undefined,
-      waterMl: form.waterMl ? parseInt(form.waterMl) : undefined,
       caloriesBurned: form.caloriesBurned ? parseInt(form.caloriesBurned) : undefined,
       vo2max: form.vo2max ? parseFloat(form.vo2max) : undefined,
       distanceKm: form.distanceKm ? parseFloat(form.distanceKm) : undefined,
@@ -1398,7 +1434,6 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
             ['Deep sleep (ชม.)', 'sleepDeep', '1.5'],
             ['REM (ชม.)', 'sleepRem', '1.5'],
             ['Light (ชม.)', 'sleepLight', '4.5'],
-            ['น้ำ (mL)', 'waterMl', '2000'],
             ['เผาผลาญ (cal)', 'caloriesBurned', '400'],
             ['VO₂max', 'vo2max', '42'],
             ['ระยะทาง (กม.)', 'distanceKm', '5'],

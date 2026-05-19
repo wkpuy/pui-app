@@ -9,6 +9,7 @@ export default function Retirement() {
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
   const plan = useLiveQuery(() => db.retirementPlan.toArray().then(r => r[0]))
   const investments = useLiveQuery(() => db.investments.toArray())
+  const salaryRecords = useLiveQuery(() => db.salaryRecords.orderBy('year').toArray())
   const [showForm, setShowForm] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'projection' | 'assets'>('overview')
 
@@ -21,8 +22,34 @@ export default function Retirement() {
   }, {} as Record<string, number>) ?? {}
   const totalInv = Object.values(invByType).reduce((s, v) => s + v, 0)
 
-  // Effective assets = พอร์ตลงทุน + สินทรัพย์อื่นๆ ในแผน (PVD, เงินสด, ฯลฯ)
-  const effectiveAssets = (plan?.currentTotalAssets ?? 0) + totalInv
+  // PVD from Salary records — sum of annual contributions across all entered years
+  const pvdToDate = (salaryRecords ?? []).reduce((sum, r) => {
+    const annual = r.baseSalary * 12
+    return sum + annual * ((r.pvdEmployeeRate + r.pvdEmployerRate) / 100)
+  }, 0)
+
+  // Projected PVD at retirement (future contributions, 5% raise compounded)
+  const latestSalary = (salaryRecords ?? []).slice(-1)[0]
+  const yearsToRetirement = plan ? Math.max(plan.targetRetirementAge - age, 0) : 0
+  const growthRate = 0.05
+  const expectedReturn = (plan?.expectedReturnRate ?? 5) / 100
+  let pvdProjected = 0
+  if (latestSalary && yearsToRetirement > 0) {
+    // Future PVD contributions with growth, compounded by expected return until retirement
+    for (let i = 1; i <= yearsToRetirement; i++) {
+      const yearFactor = Math.pow(1 + growthRate, i)
+      const annualContrib = latestSalary.baseSalary * 12 * yearFactor * ((latestSalary.pvdEmployeeRate + latestSalary.pvdEmployerRate) / 100)
+      // Compounded growth from this contribution year until retirement
+      const yearsCompound = yearsToRetirement - i
+      pvdProjected += annualContrib * Math.pow(1 + expectedReturn, yearsCompound)
+    }
+  }
+  // Current PVD compounded to retirement
+  const pvdToDateGrown = pvdToDate * Math.pow(1 + expectedReturn, yearsToRetirement)
+  const pvdAtRetirement = pvdToDateGrown + pvdProjected
+
+  // Effective assets = พอร์ตลงทุน + สินทรัพย์อื่นๆ + PVD ปัจจุบัน
+  const effectiveAssets = (plan?.currentTotalAssets ?? 0) + totalInv + pvdToDate
 
   const target = plan ? calcRetirementTarget(plan.monthlyExpenseAtRetirement) : 0
   const progress = plan && target > 0 ? Math.min((effectiveAssets / target) * 100, 100) : 0
@@ -156,7 +183,7 @@ export default function Retirement() {
             )}
 
             {activeTab === 'assets' && (
-              <AssetsTab invByType={invByType} totalInv={totalInv} plan={plan} effectiveAssets={effectiveAssets} TYPE_LABELS={TYPE_LABELS} TYPE_COLORS={TYPE_COLORS} />
+              <AssetsTab invByType={invByType} totalInv={totalInv} plan={plan} effectiveAssets={effectiveAssets} TYPE_LABELS={TYPE_LABELS} TYPE_COLORS={TYPE_COLORS} pvdToDate={pvdToDate} pvdAtRetirement={pvdAtRetirement} />
             )}
           </>
         )}
@@ -257,23 +284,36 @@ function PostRetirementProjection({ currentAssets, monthlyExpense, postReturnRat
   )
 }
 
-function AssetsTab({ invByType, totalInv, plan, effectiveAssets, TYPE_LABELS, TYPE_COLORS }: any) {
+function AssetsTab({ invByType, totalInv, plan, effectiveAssets, TYPE_LABELS, TYPE_COLORS, pvdToDate, pvdAtRetirement }: any) {
   return (
     <div className="px-4 pt-3 pb-4">
       <div className="mb-3">
         <Card>
           <CardTitle>สินทรัพย์รวม</CardTitle>
           <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(effectiveAssets)}</div>
-          <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-[12px]">
+          <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-3 gap-2 text-[12px]">
             <div>
               <div className="text-gray-400">📈 พอร์ตลงทุน</div>
               <div className="font-semibold text-gray-700">{formatCurrency(totalInv, 0)}</div>
             </div>
             <div>
-              <div className="text-gray-400">🏦 อื่นๆ (PVD, เงินสด...)</div>
+              <div className="text-gray-400">🏦 PVD ปัจจุบัน</div>
+              <div className="font-semibold text-gray-700">{formatCurrency(pvdToDate, 0)}</div>
+            </div>
+            <div>
+              <div className="text-gray-400">💰 อื่นๆ</div>
               <div className="font-semibold text-gray-700">{formatCurrency(plan.currentTotalAssets, 0)}</div>
             </div>
           </div>
+          {pvdAtRetirement > 0 && (
+            <div className="mt-2 pt-2 border-t border-gray-100 bg-indigo-50 -mx-4 px-4 py-2 rounded-b-2xl">
+              <div className="flex justify-between items-center">
+                <div className="text-[11px] text-indigo-600 font-semibold">🎯 PVD คาดการณ์ ณ เกษียณ</div>
+                <div className="text-[14px] font-bold text-indigo-700">{formatCurrency(pvdAtRetirement, 0)}</div>
+              </div>
+              <div className="text-[10px] text-indigo-400 mt-0.5">รวมการสมทบในอนาคต + ดอกเบี้ยทบต้น</div>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -391,7 +431,7 @@ function RetirementForm({ plan, onClose }: { plan: any; onClose: () => void }) {
     ['อายุเกษียณ (ปี)', 'targetRetirementAge', '55'],
     ['อายุขัยคาดหวัง (ปี)', 'lifeExpectancy', '85'],
     ['ค่าใช้จ่าย/เดือนตอนเกษียณ', 'monthlyExpenseAtRetirement', '40000'],
-    ['สินทรัพย์อื่นๆ (PVD, เงินสด — นอกพอร์ตลงทุน)', 'currentTotalAssets', '0'],
+    ['สินทรัพย์อื่นๆ (เงินสด, อสังหา — PVD ดึงจากเงินเดือนอัตโนมัติ)', 'currentTotalAssets', '0'],
     ['ผลตอบแทนก่อนเกษียณ (%/ปี)', 'expectedReturnRate', '7'],
     ['ผลตอบแทนหลังเกษียณ (%/ปี)', 'postRetirementReturnRate', '4'],
     ['เงินเฟ้อ (%/ปี)', 'inflationRate', '3'],
