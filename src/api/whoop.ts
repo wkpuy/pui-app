@@ -105,9 +105,9 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
   const startStr = start.toISOString()
 
   const [recoveries, sleeps, cycles] = await Promise.all([
-    fetchAllPages('/recovery/', tokens.accessToken, startStr),
-    fetchAllPages('/activity/sleep/', tokens.accessToken, startStr),
-    fetchAllPages('/cycle/', tokens.accessToken, startStr),
+    fetchAllPages('/recovery', tokens.accessToken, startStr),
+    fetchAllPages('/activity/sleep', tokens.accessToken, startStr),
+    fetchAllPages('/cycle', tokens.accessToken, startStr),
   ])
 
   const map = new Map<string, WhoopDailyData>()
