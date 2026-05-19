@@ -86,16 +86,28 @@ function toDateStr(isoStr: string): string {
   return isoStr.slice(0, 10)
 }
 
+async function fetchAllPages(path: string, accessToken: string, startStr: string): Promise<any[]> {
+  const all: any[] = []
+  let nextToken: string | undefined
+  do {
+    const params = new URLSearchParams({ start: startStr, limit: '25' })
+    if (nextToken) params.set('nextToken', nextToken)
+    const data = await proxyApi(`${path}?${params}`, accessToken)
+    all.push(...(data?.records ?? []))
+    nextToken = data?.next_token ?? undefined
+  } while (nextToken)
+  return all
+}
+
 export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<WhoopDailyData[]> {
   const start = new Date()
   start.setDate(start.getDate() - days)
   const startStr = start.toISOString()
-  const limit = Math.min(days + 5, 100)
 
   const [recoveries, sleeps, cycles] = await Promise.all([
-    proxyApi(`/recovery/?start=${startStr}&limit=${limit}`, tokens.accessToken),
-    proxyApi(`/activity/sleep/?start=${startStr}&limit=${limit}`, tokens.accessToken),
-    proxyApi(`/cycle/?start=${startStr}&limit=${limit}`, tokens.accessToken),
+    fetchAllPages('/recovery/', tokens.accessToken, startStr),
+    fetchAllPages('/activity/sleep/', tokens.accessToken, startStr),
+    fetchAllPages('/cycle/', tokens.accessToken, startStr),
   ])
 
   const map = new Map<string, WhoopDailyData>()
@@ -104,7 +116,7 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
     return map.get(date)!
   }
 
-  for (const r of recoveries?.records ?? []) {
+  for (const r of recoveries ?? []) {
     if (!r.created_at) continue
     const d = ensure(toDateStr(r.created_at))
     d.recoveryScore = r.score?.recovery_score
@@ -113,7 +125,7 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
     d.bloodOxygen = r.score?.spo2_percentage
   }
 
-  for (const s of sleeps?.records ?? []) {
+  for (const s of sleeps ?? []) {
     if (!s.start || s.nap) continue
     const d = ensure(toDateStr(s.start))
     if (s.score) {
@@ -133,7 +145,7 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
     }
   }
 
-  for (const c of cycles?.records ?? []) {
+  for (const c of cycles ?? []) {
     if (!c.start) continue
     const d = ensure(toDateStr(c.start))
     d.strain = c.score?.strain ? Math.round(c.score.strain * 10) / 10 : undefined
