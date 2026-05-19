@@ -56,6 +56,14 @@ export default function Condo() {
 
   const condo = useLiveQuery(() => db.condoMortgage.toArray().then(r => r[0]))
 
+  const rowsBaseline = useMemo(() => {
+    if (!condo) return []
+    return calcAmortization(
+      condo.loanAmount, condo.interestRate, condo.loanTermYears * 12,
+      () => 0
+    )
+  }, [condo])
+
   const rows = useMemo(() => {
     if (!condo) return []
     return calcAmortization(
@@ -85,10 +93,23 @@ export default function Condo() {
     setEditingMonth(null)
   }
 
-  const totalInterest = rows.reduce((s, r) => s + r.interest, 0)
-  const totalInterestSim = rowsSim.reduce((s, r) => s + r.interest, 0)
-  const monthsSaved = rows.length - rowsSim.length
-  const interestSaved = totalInterest - totalInterestSim
+  // Active = with slider applied (if slider > 0); else just monthlyExtras
+  const activeRows = extraSim > 0 ? rowsSim : rows
+  const baselineMonths = rowsBaseline.length
+  const baselineInterest = rowsBaseline.reduce((s, r) => s + r.interest, 0)
+  const activeInterest = activeRows.reduce((s, r) => s + r.interest, 0)
+  const monthsSaved = baselineMonths - activeRows.length
+  const interestSaved = baselineInterest - activeInterest
+  const hasAnyExtra = monthsSaved > 0
+
+  // Payoff date based on activeRows length + start date
+  const payoffDate = condo?.startDate && activeRows.length > 0 ? (() => {
+    const d = new Date(condo.startDate)
+    d.setMonth(d.getMonth() + activeRows.length - 1)
+    return d
+  })() : null
+  const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+  const payoffLabel = payoffDate ? `${THAI_MONTHS_SHORT[payoffDate.getMonth()]} ${payoffDate.getFullYear() + 543}` : null
 
   const paidMonths = (() => {
     if (!condo?.startDate) return 0
@@ -134,11 +155,11 @@ export default function Condo() {
                 </div>
                 <div className="bg-white/15 rounded-xl p-2 text-center">
                   <div className="text-[11px] opacity-75">ดอกเบี้ยรวม</div>
-                  <div className="text-[13px] font-bold">{formatCurrency(totalInterest, 0)}</div>
+                  <div className="text-[13px] font-bold">{formatCurrency(activeInterest, 0)}</div>
                 </div>
                 <div className="bg-white/15 rounded-xl p-2 text-center">
                   <div className="text-[11px] opacity-75">ปิดหนี้</div>
-                  <div className="text-[13px] font-bold">{rows.length} เดือน</div>
+                  <div className="text-[13px] font-bold">{activeRows.length} เดือน</div>
                 </div>
               </div>
             </div>
@@ -174,11 +195,14 @@ export default function Condo() {
                     className="flex-1 accent-indigo-600" />
                   <div className="text-[15px] font-bold text-indigo-600 w-24 text-right">{formatCurrency(extraSim)}</div>
                 </div>
-                {extraSim > 0 && (
+                {hasAnyExtra && (
                   <div className="bg-green-50 rounded-xl p-3 flex flex-col gap-1.5">
-                    <div className="text-[13px] font-semibold text-green-800">ผลที่ได้</div>
+                    <div className="text-[13px] font-semibold text-green-800">ผลที่ได้ (เทียบกับไม่จ่ายเพิ่ม)</div>
                     <div className="text-[13px] text-green-700">⏱️ ปิดหนี้เร็วขึ้น <b>{monthsSaved} เดือน</b> ({Math.floor(monthsSaved / 12)} ปี {monthsSaved % 12} เดือน)</div>
                     <div className="text-[13px] text-green-700">💰 ประหยัดดอกเบี้ย <b>{formatCurrency(interestSaved, 0)}</b></div>
+                    {payoffLabel && (
+                      <div className="text-[13px] text-green-700">📅 จะปิดหนี้: <b>{payoffLabel}</b> (งวดที่ {activeRows.length})</div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -204,12 +228,12 @@ export default function Condo() {
                     <div className="text-[10px] font-bold text-gray-500 text-right">คงเหลือ</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
-                    {(extraSim > 0 ? rowsSim : rows).map((row, idx) => {
+                    {activeRows.map((row, idx) => {
                       const extraForRow = (monthlyExtras[row.month] ?? condo?.monthlyExtra ?? 0) + (extraSim > 0 ? extraSim : 0)
                       const isEditing = editingMonth === row.month
                       return (
                         <div key={row.month}
-                          className={`grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2 ${idx < rows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
+                          className={`grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr] gap-1 px-3 py-2 ${idx < activeRows.length - 1 ? 'border-b border-gray-50' : ''} ${row.month === paidMonths ? 'bg-indigo-50' : ''}`}
                         >
                           <div className="text-[11px] text-gray-600 font-medium">{row.month}</div>
                           <div className="text-[11px] text-right text-green-600">{formatCurrency(row.principal, 0)}</div>

@@ -20,6 +20,7 @@ const CAT_ICONS: Record<string, string> = {
   อาหาร: '🍜', เดินทาง: '🚗', ช้อปปิ้ง: '🛍️', สุขภาพ: '💊', ท่องเที่ยว: '✈️',
   บ้าน: '🏠', ประกัน: '🛡️', ลงทุน: '📈', ครอบครัว: '👨‍👩‍👧', Subscription: '📱', อื่นๆ: '📦',
   เงินเดือน: '💼', โบนัส: '🎁', ปันผล: '💰', ดอกเบี้ย: '🏦', Freelance: '💻',
+  โอนเข้า: '💸', โอนออก: '💸',
 }
 
 type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'emergency'
@@ -106,16 +107,32 @@ interface ImportState {
   selected: boolean[]
 }
 
-function detectCat(description: string): string {
+function detectCat(description: string, type?: 'income' | 'expense'): string {
   const d = description.toUpperCase()
-  if (/GRAB/.test(d)) return 'อาหาร'
-  if (/MRT|BTS|BEM|TAXI|BOLT|TRANSPORT/.test(d)) return 'เดินทาง'
-  if (/HOSPITAL|CLINIC|PHARMACY|MEDICAL|SIRIRAJ|BANGPO|SAMITIVEJ|RAJDHEV/.test(d)) return 'สุขภาพ'
-  if (/APPLE|NETFLIX|SPOTIFY|ANTHROPIC|GOOGLE|YOUTUBE|WINDSURF|LUMEN|COWAY|2C2P.*SUBSCRIPTION/.test(d)) return 'Subscription'
-  if (/SHOPEE|LAZADA|CENTRAL|LOTUS|TOPS|UNIQLO|AMAZON/.test(d)) return 'ช้อปปิ้ง'
-  if (/FOOD|MEKIKI|SUKISHI|AFTER YOU|CAFE|COFFEE|KFC|PIZZA|BQ|PZD/.test(d)) return 'อาหาร'
-  if (/INSURANCE|ASSURANCE/.test(d)) return 'ประกัน'
-  return 'ช้อปปิ้ง'
+  const t = description // keep Thai original
+  // Thai utility / telco / household
+  if (/การไฟฟ้า|MEA|PEA|กฟผ|กฟน|กฟภ/.test(t)) return 'บ้าน'
+  if (/การประปา|MWA|ประปา/.test(t)) return 'บ้าน'
+  if (/ทรู|TRUE|AIS|DTAC|NT |3BB|TOT|โทรคมนาคม/.test(t.toUpperCase())) return 'Subscription'
+  if (/ปตท\.|PTT|บางจาก|BANGCHAK|เชลล์|SHELL|คาลเท็กซ์|CALTEX|ESSO|เอสโซ่/.test(t.toUpperCase())) return 'เดินทาง'
+  if (/AIA|FWD|กรุงไทยแอกซ่า|เมืองไทยประกัน|ไทยประกัน|วิริยะ|ทิพยประกัน|ประกันชีวิต|ประกันภัย|INSURANCE|ASSURANCE/.test(t.toUpperCase())) return 'ประกัน'
+  // Food delivery / restaurants
+  if (/GRAB|แกร็บ|ไลน์แมน|LINEMAN|FOODPANDA|ฟู๊ดแพนด้า|ฟู้ดแพนด้า|ROBINHOOD/.test(t.toUpperCase())) return 'อาหาร'
+  if (/FOOD|MEKIKI|SUKISHI|AFTER YOU|CAFE|COFFEE|KFC|PIZZA|BQ|PZD|MK |เอ็มเค|ชาบู|สเต๊ก|ก๋วยเตี๋ยว|ร้านอาหาร/.test(t.toUpperCase())) return 'อาหาร'
+  // Transport
+  if (/MRT|BTS|BEM|TAXI|BOLT|TRANSPORT|รถไฟฟ้า|แท็กซี่|มอเตอร์เวย์|EXAT|ทางด่วน/.test(t.toUpperCase())) return 'เดินทาง'
+  // Health
+  if (/HOSPITAL|CLINIC|PHARMACY|MEDICAL|SIRIRAJ|BANGPO|SAMITIVEJ|RAJDHEV|โรงพยาบาล|คลินิก|ร้านยา|ยา|รพ\.|รพ /.test(t.toUpperCase())) return 'สุขภาพ'
+  // Shopping
+  if (/SHOPEE|LAZADA|CENTRAL|LOTUS|TOPS|UNIQLO|AMAZON|7-ELEVEN|เซเว่น|โลตัส|แม็คโคร|บิ๊กซี|ท็อปส์|เทสโก้|ช้อปปี้|ลาซาด้า/.test(t.toUpperCase())) return 'ช้อปปิ้ง'
+  // Subscriptions
+  if (/APPLE|NETFLIX|SPOTIFY|ANTHROPIC|GOOGLE|YOUTUBE|WINDSURF|LUMEN|COWAY|2C2P.*SUBSCRIPTION|DISNEY|HBO|VIU|PRIME/.test(d)) return 'Subscription'
+  // Wallet topup / financial transfers
+  if (/ทรูมันนี่|TRUEMONEY|TRUE MONEY|RABBIT LINE|LINE PAY|SHOPEEPAY|WALLET/.test(t.toUpperCase())) return 'อื่นๆ'
+  // Person-to-person transfer (Thai person prefix) → generic transfer
+  if (/^(น\.ส\.|นาย|นาง|MR\.|MS\.|MRS\.)/i.test(t.trim())) return type === 'income' ? 'โอนเข้า' : 'โอนออก'
+  // Default
+  return type === 'income' ? 'โอนเข้า' : 'อื่นๆ'
 }
 
 function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month }: {
@@ -220,7 +237,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
           date: txn.date,
           amount: txn.amount,
           type: txn.type as 'income' | 'expense',
-          category: txn.type === 'income' ? 'โอนเข้า' : 'โอนออก',
+          category: detectCat(txn.description ?? '', txn.type as 'income' | 'expense'),
           description: txn.description,
           source: txn.source as any,
           rawRef: txn.rawRef,

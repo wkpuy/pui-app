@@ -13,19 +13,6 @@ export default function Retirement() {
   const [activeTab, setActiveTab] = useState<'overview' | 'projection' | 'assets'>('overview')
 
   const age = profile ? getAgeDetail(profile.dob).years : 35
-  const target = plan ? calcRetirementTarget(plan.monthlyExpenseAtRetirement) : 0
-  const progress = plan && target > 0 ? Math.min((plan.currentTotalAssets / target) * 100, 100) : 0
-  const yearsLeft = plan ? Math.max(plan.targetRetirementAge - age, 0) : 0
-  const monthlySaving = plan ? calcMonthlySaving(target, plan.currentTotalAssets, yearsLeft, plan.expectedReturnRate) : 0
-
-  // Post-retirement projection
-  const retirementYears = plan ? (plan.lifeExpectancy ?? 85) - plan.targetRetirementAge : 30
-  const postReturnRate = plan?.postRetirementReturnRate ?? 4
-  const projectedMonths = retirementYears * 12
-  const postMonthlyRateCalc = postReturnRate / 100 / 12
-  const sustainableMonthly = plan?.currentTotalAssets && projectedMonths > 0
-    ? (plan.currentTotalAssets * postMonthlyRateCalc) / (1 - Math.pow(1 + postMonthlyRateCalc, -projectedMonths))
-    : 0
 
   // Investment breakdown by type
   const invByType = investments?.reduce((acc, inv) => {
@@ -33,6 +20,23 @@ export default function Retirement() {
     return acc
   }, {} as Record<string, number>) ?? {}
   const totalInv = Object.values(invByType).reduce((s, v) => s + v, 0)
+
+  // Effective assets = พอร์ตลงทุน + สินทรัพย์อื่นๆ ในแผน (PVD, เงินสด, ฯลฯ)
+  const effectiveAssets = (plan?.currentTotalAssets ?? 0) + totalInv
+
+  const target = plan ? calcRetirementTarget(plan.monthlyExpenseAtRetirement) : 0
+  const progress = plan && target > 0 ? Math.min((effectiveAssets / target) * 100, 100) : 0
+  const yearsLeft = plan ? Math.max(plan.targetRetirementAge - age, 0) : 0
+  const monthlySaving = plan ? calcMonthlySaving(target, effectiveAssets, yearsLeft, plan.expectedReturnRate) : 0
+
+  // Post-retirement projection
+  const retirementYears = plan ? (plan.lifeExpectancy ?? 85) - plan.targetRetirementAge : 30
+  const postReturnRate = plan?.postRetirementReturnRate ?? 4
+  const projectedMonths = retirementYears * 12
+  const postMonthlyRateCalc = postReturnRate / 100 / 12
+  const sustainableMonthly = effectiveAssets && projectedMonths > 0
+    ? (effectiveAssets * postMonthlyRateCalc) / (1 - Math.pow(1 + postMonthlyRateCalc, -projectedMonths))
+    : 0
 
   const TYPE_LABELS: Record<string, string> = {
     thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
@@ -100,12 +104,15 @@ export default function Retirement() {
                       </div>
                       <div className="text-right">
                         <CardTitle>มีอยู่แล้ว</CardTitle>
-                        <div className="text-xl font-bold text-green-600">{formatCurrency(plan.currentTotalAssets)}</div>
+                        <div className="text-xl font-bold text-green-600">{formatCurrency(effectiveAssets)}</div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">
+                          พอร์ตลงทุน {formatCurrency(totalInv, 0)} + อื่นๆ {formatCurrency(plan.currentTotalAssets, 0)}
+                        </div>
                       </div>
                     </div>
                     <ProgressBar value={progress} max={100} color={progress >= 80 ? 'bg-green-500' : progress >= 50 ? 'bg-indigo-500' : 'bg-amber-500'} />
                     <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-                      <span>ยังขาด {formatCurrency(Math.max(target - plan.currentTotalAssets, 0))}</span>
+                      <span>ยังขาด {formatCurrency(Math.max(target - effectiveAssets, 0))}</span>
                       <span>เป้า {formatCurrency(target)}</span>
                     </div>
                   </Card>
@@ -138,7 +145,7 @@ export default function Retirement() {
 
             {activeTab === 'projection' && (
               <PostRetirementProjection
-                currentAssets={plan.currentTotalAssets}
+                currentAssets={effectiveAssets}
                 monthlyExpense={plan.monthlyExpenseAtRetirement}
                 postReturnRate={postReturnRate}
                 retirementYears={retirementYears}
@@ -149,7 +156,7 @@ export default function Retirement() {
             )}
 
             {activeTab === 'assets' && (
-              <AssetsTab invByType={invByType} totalInv={totalInv} plan={plan} TYPE_LABELS={TYPE_LABELS} TYPE_COLORS={TYPE_COLORS} />
+              <AssetsTab invByType={invByType} totalInv={totalInv} plan={plan} effectiveAssets={effectiveAssets} TYPE_LABELS={TYPE_LABELS} TYPE_COLORS={TYPE_COLORS} />
             )}
           </>
         )}
@@ -250,15 +257,23 @@ function PostRetirementProjection({ currentAssets, monthlyExpense, postReturnRat
   )
 }
 
-function AssetsTab({ invByType, totalInv, plan, TYPE_LABELS, TYPE_COLORS }: any) {
-  const totalWithPlan = plan.currentTotalAssets
+function AssetsTab({ invByType, totalInv, plan, effectiveAssets, TYPE_LABELS, TYPE_COLORS }: any) {
   return (
     <div className="px-4 pt-3 pb-4">
       <div className="mb-3">
         <Card>
           <CardTitle>สินทรัพย์รวม</CardTitle>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalWithPlan)}</div>
-          <div className="text-[12px] text-gray-400 mt-0.5">จากแผนเกษียณ (อัพเดทในฟอร์มแผนเกษียณ)</div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(effectiveAssets)}</div>
+          <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-[12px]">
+            <div>
+              <div className="text-gray-400">📈 พอร์ตลงทุน</div>
+              <div className="font-semibold text-gray-700">{formatCurrency(totalInv, 0)}</div>
+            </div>
+            <div>
+              <div className="text-gray-400">🏦 อื่นๆ (PVD, เงินสด...)</div>
+              <div className="font-semibold text-gray-700">{formatCurrency(plan.currentTotalAssets, 0)}</div>
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -376,7 +391,7 @@ function RetirementForm({ plan, onClose }: { plan: any; onClose: () => void }) {
     ['อายุเกษียณ (ปี)', 'targetRetirementAge', '55'],
     ['อายุขัยคาดหวัง (ปี)', 'lifeExpectancy', '85'],
     ['ค่าใช้จ่าย/เดือนตอนเกษียณ', 'monthlyExpenseAtRetirement', '40000'],
-    ['สินทรัพย์ทั้งหมดตอนนี้ (บาท)', 'currentTotalAssets', '0'],
+    ['สินทรัพย์อื่นๆ (PVD, เงินสด — นอกพอร์ตลงทุน)', 'currentTotalAssets', '0'],
     ['ผลตอบแทนก่อนเกษียณ (%/ปี)', 'expectedReturnRate', '7'],
     ['ผลตอบแทนหลังเกษียณ (%/ปี)', 'postRetirementReturnRate', '4'],
     ['เงินเฟ้อ (%/ปี)', 'inflationRate', '3'],
