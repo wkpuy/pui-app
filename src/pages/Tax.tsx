@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
@@ -353,24 +353,35 @@ function NumField({ record, field, label, help, intOnly }: {
   record: TaxRecord; field: keyof TaxRecord; label: string; help?: string; intOnly?: boolean
 }) {
   const [local, setLocal] = useState((record[field] as number | undefined)?.toString() ?? '')
-  // Re-sync local state if record changes from outside
+  // Refs so cleanup effect always sees the latest values without stale closures
+  const localRef = useRef(local)
+  const recordRef = useRef(record)
+  localRef.current = local
+  recordRef.current = record
+
+  // Re-sync only when the actual DB value for this field changes (not just object reference)
   useEffect(() => {
     setLocal((record[field] as number | undefined)?.toString() ?? '')
-  }, [record, field])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record.id, record[field]])
 
-  async function save() {
-    const v = intOnly ? parseInt(local) : parseFloat(local)
+  function doSave() {
+    const v = intOnly ? parseInt(localRef.current) : parseFloat(localRef.current)
     const val = isNaN(v) ? 0 : v
-    if (record[field] === val) return
-    await db.taxRecords.update(record.id!, { [field]: val, updatedAt: new Date().toISOString() })
+    if ((recordRef.current[field] as number ?? 0) === val) return
+    db.taxRecords.update(recordRef.current.id!, { [field]: val, updatedAt: new Date().toISOString() })
   }
+
+  // Save when tab switches away (component unmounts before onBlur fires)
+  useEffect(() => () => doSave(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="mb-2.5">
       <div className="text-[12px] font-semibold text-gray-600 mb-0.5">{label}</div>
       {help && <div className="text-[10px] text-gray-400 mb-1">{help}</div>}
       <input type="number" value={local}
         onChange={e => setLocal(e.target.value)}
-        onBlur={save}
+        onBlur={doSave}
         placeholder="0"
         className="border border-gray-200 rounded-xl px-3 py-2 text-sm w-full" />
     </div>
