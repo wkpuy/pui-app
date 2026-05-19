@@ -50,15 +50,15 @@ type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' 
 interface BudgetConfig {
   internet: number          // ค่าเน็ต/เดือน
   utilities: number         // ค่าน้ำ+ไฟ/เดือน
-  condoFeeAnnual: number    // ค่าส่วนกลาง/ปี → ÷12
-  insuranceAnnual: number   // ค่าประกัน/ปี → ÷12
+  condoFee: number          // ค่าส่วนกลาง/เดือน
+  insurance: number         // ค่าประกัน/เดือน
   familyBudget: number      // ครอบครัว เป้า/เดือน
   foodBudget: number        // อาหาร เป้า/เดือน
   shoppingBudget: number    // ช็อปปิ้ง เป้า/เดือน
   otherBudget: number       // อื่นๆ เป้า/เดือน
 }
 const BUDGET_DEFAULT: BudgetConfig = {
-  internet: 0, utilities: 0, condoFeeAnnual: 0, insuranceAnnual: 0,
+  internet: 0, utilities: 0, condoFee: 0, insurance: 0,
   familyBudget: 0, foodBudget: 0, shoppingBudget: 0, otherBudget: 0,
 }
 function loadBudget(): BudgetConfig {
@@ -1783,8 +1783,8 @@ function BudgetTab({ month }: { month: string }) {
   const withholdingMonthly = taxRec ? Math.round((taxRec.withholdingTax ?? 0) / 12) : 0
   const netTakeHome = baseSalary - SS - pvd - withholdingMonthly
 
-  const condoMonthly = Math.round(config.condoFeeAnnual / 12)
-  const insuranceMonthly = Math.round(config.insuranceAnnual / 12)
+  const condoMonthly = config.condoFee
+  const insuranceMonthly = config.insurance
   const subTotal = Math.round(
     (subscriptions ?? []).filter(s => s.active).reduce((s, x) =>
       s + (x.frequency === 'monthly' ? x.amount : x.frequency === 'quarterly' ? x.amount / 3 : x.amount / 12), 0)
@@ -1857,8 +1857,8 @@ function BudgetTab({ month }: { month: string }) {
         </div>
         <BudRow label="ค่าเน็ต" amount={config.internet} />
         <BudRow label="ค่าน้ำ / ค่าไฟ" amount={config.utilities} />
-        <BudRow label="ค่าส่วนกลาง" amount={condoMonthly} note="รายปี÷12" />
-        <BudRow label="ค่าประกัน" amount={insuranceMonthly} note="รายปี÷12" />
+        <BudRow label="ค่าส่วนกลาง" amount={condoMonthly} />
+        <BudRow label="ค่าประกัน" amount={insuranceMonthly} />
         <BudRow label="📱 Subscription" amount={subTotal} note="auto" />
         <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
           <span className="text-gray-700">รวมคงที่</span>
@@ -1972,15 +1972,12 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
     )
   }
 
-  function labeledField(key: keyof BudgetConfig, label: string, note?: string, isAnnual?: boolean) {
+  function labeledField(key: keyof BudgetConfig, label: string, note?: string) {
     return (
       <div className="mb-3" key={key}>
         <div className="flex justify-between">
           <span className="text-[12px] font-semibold text-gray-600">{label}</span>
-          {isAnnual && local[key] > 0 && (
-            <span className="text-[10px] text-gray-400">÷12 = {formatCurrency(Math.round(local[key] / 12), 0)}/เดือน</span>
-          )}
-          {note && !isAnnual && <span className="text-[10px] text-gray-400">{note}</span>}
+          {note && <span className="text-[10px] text-gray-400">{note}</span>}
         </div>
         {f(key)}
       </div>
@@ -2000,8 +1997,8 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">ค่าใช้จ่ายคงที่ / เดือน</div>
         {labeledField('internet', 'ค่าเน็ต')}
         {labeledField('utilities', 'ค่าน้ำ + ค่าไฟ (รวม)')}
-        {labeledField('condoFeeAnnual', 'ค่าส่วนกลางคอนโด', undefined, true)}
-        {labeledField('insuranceAnnual', 'ค่าประกัน (รวมทุกกรมธรรม์/ปี)', undefined, true)}
+        {labeledField('condoFee', 'ค่าส่วนกลางคอนโด')}
+        {labeledField('insurance', 'ค่าประกัน (รวมทุกกรมธรรม์)')}
 
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">เป้าหมายรายจ่ายแปรผัน / เดือน</div>
         {labeledField('foodBudget', '🍜 อาหาร')}
