@@ -134,9 +134,9 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
 // sinceDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
 export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
   const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
-  // Only specific bank notification senders — KPLUS (KBank) + BualuangmBanking (BBL)
+  // KPLUS: only "Funds Transfer" / "Bill Payment" notifications. BBL: all from BualuangmBanking
   const query = encodeURIComponent(
-    `from:(KPLUS@kasikornbank.com OR BualuangmBanking@bangkokbank.com) ${timeFilter}`
+    `((from:KPLUS@kasikornbank.com subject:("Funds Transfer" OR "Bill Payment")) OR from:BualuangmBanking@bangkokbank.com) ${timeFilter}`
   )
   const res = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=100`,
