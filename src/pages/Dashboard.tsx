@@ -209,6 +209,7 @@ function DailyBriefing({ navigate, age }: { navigate: (path: string) => void; ag
   const allHealthRecords = useLiveQuery(() => db.healthRecords.orderBy('date').reverse().toArray())
   const installments = useLiveQuery(() => db.installments.toArray())
   const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
+  const taxRecords = useLiveQuery(() => db.taxRecords.toArray())
 
   const alerts: { icon: string; text: string; color: string; path: string }[] = []
 
@@ -277,7 +278,27 @@ function DailyBriefing({ navigate, age }: { navigate: (path: string) => void; ag
     }
   }
 
-  // 5. Subscriptions — ใกล้ต่ออายุภายใน 3 วัน
+  // 5. Tax — แจ้งเตือนปลายปี ถ้ายังมีลดหย่อนเหลือเยอะ
+  if (taxRecords) {
+    const month = new Date().getMonth() + 1   // 1-12
+    const currentBE = new Date().getFullYear() + 543
+    const taxRec = taxRecords.find(r => r.year === currentBE)
+    if (taxRec && month >= 10) {  // ตั้งแต่ตุลาคมขึ้นไป
+      // คำนวณ unused space แบบ inline (เลี่ยง import เพื่อ tree-shake)
+      const gross = (taxRec.totalIncome || 0) + (taxRec.bonus || 0) + (taxRec.otherIncome || 0)
+      const rmfCap = Math.min(gross * 0.30, 500_000)
+      const ssfCap = Math.min(gross * 0.30, 200_000)
+      const unusedRmfSsf = Math.max(rmfCap - (taxRec.rmf || 0), 0) + Math.max(ssfCap - (taxRec.ssf || 0), 0)
+      if (unusedRmfSsf > 50_000) {
+        alerts.push({
+          icon: '🧾', text: `ปลายปีแล้ว! RMF/SSF เหลือสิทธิ์ ${unusedRmfSsf.toLocaleString()} บาท → ลองเช็คใน "วางแผนภาษี"`,
+          color: 'bg-amber-50', path: '/tax',
+        })
+      }
+    }
+  }
+
+  // 6. Subscriptions — ใกล้ต่ออายุภายใน 3 วัน
   if (subscriptions) {
     const upcoming = subscriptions.filter(s => {
       if (!s.active) return false

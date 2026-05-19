@@ -215,6 +215,67 @@ export interface EmergencyFund {
   updatedAt: string
 }
 
+// Thai personal income tax record (per ปีภาษี)
+export interface TaxRecord {
+  id?: number
+  year: number              // ปี พ.ศ. (เช่น 2567)
+  // รายได้
+  totalIncome: number       // เงินได้ทั้งปี (40(1) - เงินเดือน)
+  bonus: number             // โบนัส
+  otherIncome: number       // รายได้อื่น (freelance, dividend...)
+  // ค่าใช้จ่าย/ลดหย่อนพื้นฐาน
+  personalAllowance: number      // ส่วนตัว 60,000 (auto)
+  spouseAllowance: number        // คู่สมรส 0/60,000
+  childrenCount: number          // จำนวนบุตร (≤2561) → 30k คนแรก
+  childrenAfter2561: number      // บุตรเกิดตั้งแต่ 2561 (60k/คนตั้งแต่คนที่ 2)
+  parentsCount: number           // บิดามารดา (60+ รายได้ <30k) → 30,000/คน max 4
+  // ประกัน
+  lifeInsurance: number          // ประกันชีวิต (≤100,000)
+  healthInsurance: number        // ประกันสุขภาพตน (≤25,000 รวม Life ≤100k)
+  parentsHealthInsurance: number // ประกันสุขภาพพ่อแม่ (≤15,000)
+  pensionInsurance: number       // ประกันชีวิตแบบบำนาญ (≤200,000 หรือ 15% รายได้)
+  socialSecurity: number         // ประกันสังคม (≤9,000 ที่ 750/เดือน)
+  // กองทุน
+  pvdContribution: number        // PVD พนักงานจ่าย (≤500,000 หรือ 15% รายได้)
+  rmf: number                    // RMF (≤500,000 หรือ 30% รายได้)
+  ssf: number                    // SSF (≤200,000 หรือ 30% รายได้)
+  thaiEsg: number                // Thai ESG Fund (≤300,000 หรือ 30% รายได้)
+  // อื่นๆ
+  mortgageInterest: number       // ดอกเบี้ยกู้บ้าน (≤100,000)
+  donation: number               // เงินบริจาคทั่วไป (≤10% หลังลดหย่อน)
+  donationEducation: number      // บริจาค ศึกษา/สาธารณสุข (2x, ≤10% หลังลดหย่อน)
+  donationPolitical: number      // บริจาคพรรคการเมือง (≤10,000)
+  easyEReceipt: number           // Easy E-Receipt / ช้อปดีมีคืน (เปลี่ยนทุกปี)
+  // ผลคำนวณ (cache)
+  withholdingTax: number         // ภาษีที่ถูกหักไว้ ณ ที่จ่าย
+  notes?: string
+  updatedAt: string
+}
+
+// ยา/วิตามิน/อาหารเสริม
+export interface Medication {
+  id?: number
+  name: string                   // เช่น "Vitamin D3 5000 IU"
+  type: 'medication' | 'supplement' | 'vitamin'
+  dose: string                   // "1 เม็ด", "10 mg"
+  frequency: 'daily' | 'weekly' | 'monthly' | 'as_needed'
+  timeOfDay?: string             // "เช้า", "เย็น", "ก่อนนอน"
+  prescribedBy?: string          // หมอ / self
+  startDate: string              // YYYY-MM-DD
+  endDate?: string               // ถ้ามีกำหนดหยุด
+  active: boolean
+  purpose?: string               // วัตถุประสงค์
+  notes?: string
+}
+
+// บันทึกการกินยาแต่ละวัน
+export interface MedicationLog {
+  id?: number
+  medicationId: number
+  date: string                   // YYYY-MM-DD
+  taken: boolean
+}
+
 export interface Subscription {
   id?: number
   name: string              // e.g. "Netflix", "iCloud 200GB"

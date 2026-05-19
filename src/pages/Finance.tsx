@@ -58,6 +58,8 @@ export default function Finance() {
             className="text-[12px] font-semibold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg active:scale-95">💼 เงินเดือน</button>
           <button onClick={() => navigate('/condo')}
             className="text-[12px] font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg active:scale-95">🏠 สินเชื่อ</button>
+          <button onClick={() => navigate('/tax')}
+            className="text-[12px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg active:scale-95">🧾 ภาษี</button>
         </div>
       </div>
 

@@ -13,6 +13,7 @@ import AnnualWrapped from './pages/AnnualWrapped'
 import Calendar from './pages/Calendar'
 import Salary from './pages/Salary'
 import Condo from './pages/Condo'
+import Tax from './pages/Tax'
 import { exchangeCode, saveWhoopTokens } from './api/whoop'
 
 async function handleWhoopCallback(): Promise<string | null> {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/wrapped" element={<AnnualWrapped />} />
         <Route path="/salary" element={<Salary />} />
         <Route path="/condo" element={<Condo />} />
+        <Route path="/tax" element={<Tax />} />
         <Route path="*" element={<MainLayout />} />
       </Routes>
     </BrowserRouter>

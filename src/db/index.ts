@@ -3,7 +3,7 @@ import type {
   Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
   GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
-  Subscription,
+  Subscription, TaxRecord, Medication, MedicationLog,
 } from './types'
 
 class AppDB extends Dexie {
@@ -23,6 +23,9 @@ class AppDB extends Dexie {
   condoMortgage!: Table<CondoMortgage>
   installments!: Table<Installment>
   subscriptions!: Table<Subscription>
+  taxRecords!: Table<TaxRecord>
+  medications!: Table<Medication>
+  medicationLogs!: Table<MedicationLog>
 
   constructor() {
     super('PuiPersonalApp')
@@ -92,6 +95,27 @@ class AppDB extends Dexie {
       installments: '++id, startDate',
       subscriptions: '++id, nextRenewalDate, active',
     })
+    this.version(5).stores({
+      profile: '++id',
+      investments: '++id, type, ticker',
+      dividends: '++id, investmentId, date',
+      healthRecords: '++id, date',
+      healthDaily: '++id, date',
+      retirementPlan: '++id',
+      financeRecords: '++id, date, type, source, rawRef',
+      emergencyFund: '++id',
+      chatMessages: '++id, timestamp',
+      googleTokens: '++id',
+      syncLog: '++id, source',
+      settings: '++id',
+      salaryRecords: '++id, year',
+      condoMortgage: '++id',
+      installments: '++id, startDate',
+      subscriptions: '++id, nextRenewalDate, active',
+      taxRecords: '++id, year',
+      medications: '++id, active',
+      medicationLogs: '++id, medicationId, date, [medicationId+date]',
+    })
   }
 }
 
@@ -111,5 +135,5 @@ export type {
   Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
   GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
-  Subscription,
+  Subscription, TaxRecord, Medication, MedicationLog,
 }

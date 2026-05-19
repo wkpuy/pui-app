@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
-import type { HealthRecord, HealthDaily } from '../db'
+import type { HealthRecord, HealthDaily, Medication } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, StatusTag } from '../components/Card'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
@@ -96,7 +96,7 @@ const STATUS_COLOR = {
   high:    { text: 'text-red-600',   bg: 'bg-red-50',   label: 'ผิดปกติ ❗', badge: 'bg-red-100 text-red-700' },
 }
 
-type MainTab = 'summary' | 'myplan' | 'longevity' | 'records' | 'daily'
+type MainTab = 'summary' | 'myplan' | 'longevity' | 'records' | 'daily' | 'meds'
 
 const LONGEVITY_KEYS = Object.entries(BIOMARKERS)
   .filter(([, def]) => def.longevity)
@@ -106,8 +106,10 @@ export default function Health() {
   const [tab, setTab] = useState<MainTab>('summary')
   const [showRecordForm, setShowRecordForm] = useState(false)
   const [showDailyForm, setShowDailyForm] = useState(false)
+  const [showMedForm, setShowMedForm] = useState(false)
   const [editRecord, setEditRecord] = useState<HealthRecord | null>(null)
   const [editDaily, setEditDaily] = useState<HealthDaily | null>(null)
+  const [editMed, setEditMed] = useState<Medication | null>(null)
   const [whoopSyncing, setWhoopSyncing] = useState(false)
   const [whoopMsg, setWhoopMsg] = useState<string | null>(null)
 
@@ -164,12 +166,12 @@ export default function Health() {
         gradient="from-rose-500 to-pink-600"
         rightAction={{
           label: '＋ เพิ่ม',
-          onClick: () => tab === 'daily' ? openAddDaily() : openAddRecord(),
+          onClick: () => tab === 'daily' ? openAddDaily() : tab === 'meds' ? (() => { setEditMed(null); setShowMedForm(true) })() : openAddRecord(),
         }}
       />
 
       <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม']] as [MainTab, string][]).map(([t, l]) => (
+        {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม'], ['meds', '💊 ยา/วิตามิน']] as [MainTab, string][]).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
             {l}
@@ -193,6 +195,9 @@ export default function Health() {
           <DailyTab daily={allDaily ?? []}
             onEdit={(d) => { setEditDaily(d); setShowDailyForm(true) }} />
         )}
+        {tab === 'meds' && (
+          <MedsTab onEdit={(m) => { setEditMed(m); setShowMedForm(true) }} />
+        )}
       </div>
 
       {showRecordForm && (
@@ -200,6 +205,9 @@ export default function Health() {
       )}
       {showDailyForm && (
         <HealthDailyForm editItem={editDaily} onClose={() => { setShowDailyForm(false); setEditDaily(null) }} />
+      )}
+      {showMedForm && (
+        <MedicationForm editItem={editMed} onClose={() => { setShowMedForm(false); setEditMed(null) }} />
       )}
     </div>
   )
@@ -1458,6 +1466,296 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
         </div>
         <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
           {editItem ? 'บันทึกการแก้ไข' : 'บันทึก'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Medication / Supplement Tab ────────────────────────────────────────────
+function MedsTab({ onEdit }: { onEdit: (m: Medication) => void }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const allMeds = useLiveQuery(() => db.medications.orderBy('name').toArray())
+  const todayLogs = useLiveQuery(() => db.medicationLogs.where('date').equals(today).toArray())
+
+  const TYPE_LABEL: Record<string, string> = { medication: '💊 ยา', supplement: '🧴 อาหารเสริม', vitamin: '🔬 วิตามิน' }
+  const FREQ_LABEL: Record<string, string> = { daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', as_needed: 'เมื่อจำเป็น' }
+
+  async function toggleLog(medId: number, taken: boolean) {
+    const existing = (todayLogs ?? []).find(l => l.medicationId === medId)
+    if (existing) {
+      await db.medicationLogs.update(existing.id!, { taken })
+    } else {
+      await db.medicationLogs.add({ medicationId: medId, date: today, taken })
+    }
+  }
+
+  async function deleteMed(id: number) {
+    if (!confirm('ลบรายการนี้?')) return
+    await db.medications.delete(id)
+    await db.medicationLogs.where('medicationId').equals(id).delete()
+  }
+
+  const active = (allMeds ?? []).filter(m => m.active)
+  const inactive = (allMeds ?? []).filter(m => !m.active)
+  const dailyMeds = active.filter(m => m.frequency === 'daily')
+  const todayChecked = dailyMeds.filter(m => todayLogs?.find(l => l.medicationId === m.id && l.taken)).length
+
+  const byType = active.reduce((acc, m) => {
+    acc[m.type] = [...(acc[m.type] ?? []), m]
+    return acc
+  }, {} as Record<string, Medication[]>)
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Daily check-in */}
+      {dailyMeds.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <CardTitle>✅ เช็คอินวันนี้</CardTitle>
+            <span className="text-[12px] font-bold text-indigo-600">{todayChecked}/{dailyMeds.length} รายการ</span>
+          </div>
+          <div className="space-y-2">
+            {dailyMeds.map(m => {
+              const log = todayLogs?.find(l => l.medicationId === m.id)
+              const taken = log?.taken ?? false
+              return (
+                <div key={m.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <button
+                    onClick={() => toggleLog(m.id!, !taken)}
+                    className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${taken ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}
+                  >
+                    {taken && '✓'}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-[14px] font-semibold ${taken ? 'line-through text-gray-400' : 'text-gray-800'}`}>{m.name}</div>
+                    <div className="text-[11px] text-gray-400">{m.dose}{m.timeOfDay ? ` · ${m.timeOfDay}` : ''}</div>
+                  </div>
+                  <span className="text-[11px] text-gray-400 flex-shrink-0">{TYPE_LABEL[m.type]}</span>
+                </div>
+              )
+            })}
+          </div>
+          {todayChecked === dailyMeds.length && dailyMeds.length > 0 && (
+            <div className="mt-3 text-center text-[13px] font-bold text-green-600">🎉 ครบทุกรายการวันนี้!</div>
+          )}
+        </Card>
+      )}
+
+      {/* Active meds by type */}
+      {(['medication', 'supplement', 'vitamin'] as const).map(type => {
+        const meds = byType[type]
+        if (!meds?.length) return null
+        return (
+          <Card key={type}>
+            <CardTitle>{TYPE_LABEL[type]} ({meds.length})</CardTitle>
+            <div className="space-y-2 mt-2">
+              {meds.map(m => (
+                <div key={m.id} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[14px] font-semibold text-gray-800">{m.name}</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{FREQ_LABEL[m.frequency]}</span>
+                    </div>
+                    <div className="text-[12px] text-gray-500 mt-0.5">
+                      {m.dose}{m.timeOfDay ? ` · ${m.timeOfDay}` : ''}{m.purpose ? ` — ${m.purpose}` : ''}
+                    </div>
+                    {m.prescribedBy && <div className="text-[11px] text-gray-400">สั่งโดย: {m.prescribedBy}</div>}
+                    {m.startDate && <div className="text-[11px] text-gray-400">เริ่ม {m.startDate}{m.endDate ? ` ถึง ${m.endDate}` : ''}</div>}
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0 mt-0.5">
+                    <button onClick={() => onEdit(m)} className="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg active:scale-95">แก้ไข</button>
+                    <button onClick={() => deleteMed(m.id!)} className="text-[11px] bg-red-50 text-red-600 px-2 py-1 rounded-lg active:scale-95">ลบ</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )
+      })}
+
+      {active.length === 0 && (
+        <div className="text-center py-12 text-gray-400">
+          <div className="text-4xl mb-2">💊</div>
+          <div className="font-medium">ยังไม่มีรายการยา/วิตามิน</div>
+          <div className="text-[13px] mt-1">กด + เพิ่ม เพื่อเพิ่มรายการ</div>
+        </div>
+      )}
+
+      {/* Inactive/stopped */}
+      {inactive.length > 0 && (
+        <Card>
+          <CardTitle>🗄️ หยุดใช้แล้ว ({inactive.length})</CardTitle>
+          <div className="space-y-1 mt-2">
+            {inactive.map(m => (
+              <div key={m.id} className="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                <span className="text-[13px] text-gray-400 flex-1 line-through">{m.name} — {m.dose}</span>
+                <button onClick={() => onEdit(m)} className="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">แก้ไข</button>
+                <button onClick={() => deleteMed(m.id!)} className="text-[11px] bg-red-50 text-red-600 px-2 py-1 rounded-lg">ลบ</button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ── Medication Form ────────────────────────────────────────────────────────
+function MedicationForm({ editItem, onClose }: { editItem: Medication | null; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: editItem?.name ?? '',
+    type: (editItem?.type ?? 'supplement') as 'medication' | 'supplement' | 'vitamin',
+    dose: editItem?.dose ?? '',
+    frequency: (editItem?.frequency ?? 'daily') as 'daily' | 'weekly' | 'monthly' | 'as_needed',
+    timeOfDay: editItem?.timeOfDay ?? '',
+    prescribedBy: editItem?.prescribedBy ?? '',
+    startDate: editItem?.startDate ?? new Date().toISOString().slice(0, 10),
+    endDate: editItem?.endDate ?? '',
+    active: editItem?.active ?? true,
+    purpose: editItem?.purpose ?? '',
+    notes: editItem?.notes ?? '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  function set(k: string, v: any) { setForm(f => ({ ...f, [k]: v })) }
+
+  async function saveMed() {
+    if (!form.name.trim() || !form.dose.trim()) { alert('กรุณากรอกชื่อและขนาดยา'); return }
+    setSaving(true)
+    try {
+      const record: Omit<Medication, 'id'> = {
+        name: form.name.trim(),
+        type: form.type,
+        dose: form.dose.trim(),
+        frequency: form.frequency,
+        timeOfDay: form.timeOfDay || undefined,
+        prescribedBy: form.prescribedBy || undefined,
+        startDate: form.startDate,
+        endDate: form.endDate || undefined,
+        active: form.active,
+        purpose: form.purpose || undefined,
+        notes: form.notes || undefined,
+      }
+      if (editItem?.id) {
+        await db.medications.update(editItem.id, record)
+      } else {
+        await db.medications.add(record)
+      }
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center">
+      <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto space-y-4"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-[17px] font-bold text-gray-900">{editItem ? 'แก้ไขรายการ' : 'เพิ่มยา/วิตามิน'}</h2>
+          <button onClick={onClose} className="text-gray-400 text-2xl w-8 h-8 flex items-center justify-center">×</button>
+        </div>
+
+        {/* Type */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ประเภท</div>
+          <div className="flex gap-2">
+            {([['medication', '💊 ยา'], ['supplement', '🧴 อาหารเสริม'], ['vitamin', '🔬 วิตามิน']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => set('type', v)}
+                className={`flex-1 py-2 text-[13px] font-semibold rounded-xl border-2 transition-colors ${form.type === v ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-500'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Name */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ชื่อยา / วิตามิน *</div>
+          <input value={form.name} onChange={e => set('name', e.target.value)}
+            placeholder="เช่น Vitamin D3 5000 IU, Magnesium Glycinate 400mg"
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        {/* Dose */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ขนาด/ปริมาณ *</div>
+          <input value={form.dose} onChange={e => set('dose', e.target.value)}
+            placeholder="เช่น 1 เม็ด, 2 capsules, 10 mg"
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        {/* Frequency & Time */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">ความถี่</div>
+            <select value={form.frequency} onChange={e => set('frequency', e.target.value)}
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full">
+              <option value="daily">ทุกวัน</option>
+              <option value="weekly">ทุกสัปดาห์</option>
+              <option value="monthly">ทุกเดือน</option>
+              <option value="as_needed">เมื่อจำเป็น</option>
+            </select>
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">เวลา</div>
+            <input value={form.timeOfDay} onChange={e => set('timeOfDay', e.target.value)}
+              placeholder="เช้า / เย็น / ก่อนนอน"
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+          </div>
+        </div>
+
+        {/* Purpose */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">วัตถุประสงค์</div>
+          <input value={form.purpose} onChange={e => set('purpose', e.target.value)}
+            placeholder="เช่น เสริมภูมิคุ้มกัน, ลด inflammation, นอนหลับดีขึ้น"
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        {/* Prescribed by */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">สั่งโดย (แพทย์/ตัวเอง)</div>
+          <input value={form.prescribedBy} onChange={e => set('prescribedBy', e.target.value)}
+            placeholder="นพ.สมชาย / ตัวเอง"
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        {/* Dates */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">วันที่เริ่ม</div>
+            <input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)}
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">วันที่หยุด (ถ้ามี)</div>
+            <input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)}
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+          </div>
+        </div>
+
+        {/* Active toggle */}
+        <div className="flex items-center gap-3">
+          <button onClick={() => set('active', !form.active)}
+            className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 ${form.active ? 'bg-green-500' : 'bg-gray-300'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.active ? 'translate-x-6' : 'translate-x-0.5'}`} />
+          </button>
+          <span className="text-[14px] font-medium text-gray-700">{form.active ? 'กำลังใช้งานอยู่' : 'หยุดใช้แล้ว'}</span>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">หมายเหตุ</div>
+          <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
+            rows={2} placeholder="ข้อมูลเพิ่มเติม..."
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full resize-none" />
+        </div>
+
+        <button onClick={saveMed} disabled={saving}
+          className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 w-full disabled:opacity-40">
+          {saving ? 'กำลังบันทึก...' : editItem ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
         </button>
       </div>
     </div>

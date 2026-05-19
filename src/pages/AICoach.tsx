@@ -6,6 +6,7 @@ import { chatWithCoach, analyzePatterns, initGemini } from '../api/gemini'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
 import { BIOMARKERS, getCheckups } from './Health'
+import { calcThaiTax, suggestUnusedAllowances } from '../utils/thaiTax'
 
 interface Message { role: 'user' | 'assistant'; content: string; time: string }
 
@@ -44,6 +45,7 @@ export default function AICoach() {
   const condo = useLiveQuery(() => db.condoMortgage.toArray().then(r => r[0]))
   const emergencyFund = useLiveQuery(() => db.emergencyFund.toArray().then(r => r[0]))
   const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
+  const taxRecords = useLiveQuery(() => db.taxRecords.toArray())
 
   useEffect(() => {
     if (settings?.geminiApiKey) initGemini(settings.geminiApiKey)
@@ -232,6 +234,26 @@ export default function AICoach() {
       `  - ${s.name}: ${num(s.amount)} ${s.frequency === 'monthly' ? 'บาท/เดือน' : s.frequency === 'quarterly' ? 'บาท/3 เดือน' : 'บาท/ปี'}${s.paymentMethod ? ` (${s.paymentMethod})` : ''}`
     ).join('\n')
 
+    // ── Tax ─────────────────────────────────────────────────
+    const currentBE = new Date().getFullYear() + 543
+    const taxRec = (taxRecords ?? []).find(r => r.year === currentBE)
+      ?? (taxRecords ?? []).sort((a, b) => b.year - a.year)[0]
+    let taxStr = '  (ยังไม่มีข้อมูลภาษี — ไปเพิ่มที่หน้าภาษี)'
+    let taxSuggestStr = ''
+    if (taxRec) {
+      const bd = calcThaiTax(taxRec)
+      const suggestions = suggestUnusedAllowances(taxRec)
+      taxStr = `ปีภาษี ${taxRec.year}:
+  - เงินได้รวม: ${num(bd.grossIncome)} บาท (เงินเดือน ${num(taxRec.totalIncome)}, โบนัส ${num(taxRec.bonus)}, อื่นๆ ${num(taxRec.otherIncome)})
+  - หักค่าใช้จ่าย: ${num(bd.expenseAllowance)} + ลดหย่อนรวม: ${num(bd.totalDeductions)} บาท
+  - เงินได้สุทธิ: ${num(bd.netIncome)} บาท
+  - ภาษีที่ต้องจ่าย: ${num(bd.taxOwed)} บาท (Effective ${(bd.effective * 100).toFixed(1)}%, Marginal ${(bd.marginal * 100).toFixed(0)}%)
+  - หัก ณ ที่จ่าย: ${num(bd.withholding)} → ${bd.netTaxPayable >= 0 ? `ต้องจ่ายเพิ่ม ${num(bd.netTaxPayable)}` : `ขอคืน ${num(-bd.netTaxPayable)}`} บาท`
+      taxSuggestStr = suggestions.length > 0
+        ? `\n  📋 สิทธิ์ที่ยังไม่ได้ใช้เต็ม: ${suggestions.slice(0, 4).map(s => `${s.name} เหลือ ${num(s.unused)} บาท`).join(', ')}`
+        : '\n  ✅ ใช้สิทธิ์ลดหย่อนได้เกือบเต็มแล้ว'
+    }
+
     // ── Condo ───────────────────────────────────────────────
     const condoStr = condo ? `${condo.propertyName}: กู้ ${num(condo.loanAmount)}, ดอกเบี้ย ${condo.interestRate}%, ผ่อน ${condo.loanTermYears} ปี + จ่ายเพิ่ม ${num(condo.monthlyExtra)}/เดือน` : 'ยังไม่ได้บันทึก'
 
@@ -285,6 +307,9 @@ ${retirement ? `- เป้าอายุเกษียณ ${retirement.target
 - รวม: ${num(subMonthly, 0)} บาท/เดือน หรือ ${num(subAnnual, 0)} บาท/ปี
 ${subLines || '  (ยังไม่มี subscription)'}
 
+═══ ภาษีเงินได้บุคคลธรรมดา (Thai PIT) ═══
+${taxStr}${taxSuggestStr}
+
 ═══ สินเชื่อบ้าน ═══
 - ${condoStr}
 
@@ -334,6 +359,17 @@ ${checkups.map(c => `- ${c}`).join('\n')}
 • Debt-to-income ratio <36%, ผ่อนบ้าน <28%
 • Savings rate 20%+ ของรายได้
 • 50/30/20 rule: 50% needs, 30% wants, 20% savings/debt
+
+[Thai Personal Income Tax (PIT) 2566/2567]
+• Brackets: 0-150k=0%, 150-300k=5%, 300-500k=10%, 500-750k=15%, 750k-1M=20%, 1-2M=25%, 2-5M=30%, >5M=35%
+• ค่าใช้จ่าย 40(1): 50% เพดาน 100,000
+• ลดหย่อนส่วนตัว 60,000 + คู่สมรส 60,000 + บุตร 30-60k/คน + บิดามารดา 30k/คน
+• RMF ≤30% รายได้ ≤500k | SSF ≤30% รายได้ ≤200k | Thai ESG ≤30% รายได้ ≤300k (แยก)
+• PVD + บำนาญ + RMF + SSF ≤ 500,000 รวมกัน
+• ประกันชีวิต + สุขภาพตน ≤ 100,000 (ประกันสุขภาพ ≤ 25k)
+• ดอกเบี้ยกู้บ้าน ≤ 100,000
+• Easy E-Receipt ≤ 50,000
+• กลยุทธ์ประหยัดภาษี: ใช้ RMF/SSF/Thai ESG ก่อนสิ้นปี, ซื้อประกันบำนาญ, ดอกเบี้ยบ้าน
 
 ═══ ข้อปฏิบัติ (สำคัญ) ═══
 1. **คำนวณก่อนตอบ** — ใช้เลขจากข้อมูลจริง อย่าเดา ตรวจสูตรให้ถูก
