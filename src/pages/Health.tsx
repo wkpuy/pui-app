@@ -9,7 +9,7 @@ import { loadWhoopTokens } from '../api/whoop'
 import { syncWhoopAndSave } from '../api/whoopSync'
 
 // ── Biomarker definitions ──────────────────────────────────────────────────
-interface BiomarkerDef {
+export interface BiomarkerDef {
   label: string
   unit: string
   normal: string
@@ -19,7 +19,7 @@ interface BiomarkerDef {
   femaleNote?: string
 }
 
-const BIOMARKERS: Record<string, BiomarkerDef> = {
+export const BIOMARKERS: Record<string, BiomarkerDef> = {
   // Vitals
   systolic:        { label: 'ความดัน (บน)', unit: 'mmHg', normal: '<130', optimal: '<120', evaluate: v => v < 110 ? 'warning' : v < 120 ? 'optimal' : v < 130 ? 'good' : 'high' },
   diastolic:       { label: 'ความดัน (ล่าง)', unit: 'mmHg', normal: '<80', optimal: '<80', evaluate: v => v < 75 ? 'optimal' : v < 80 ? 'good' : 'high' },
@@ -79,7 +79,7 @@ const AGE_CHECKUPS: Record<string, string[]> = {
   '50+': ['ตรวจ Colonoscopy ทุก 10 ปี', 'Mammogram ปีละ 1 ครั้ง', 'ฮอร์โมน Menopause panel', 'ตรวจ Bone density ซ้ำ'],
 }
 
-function getCheckups(age: number): string[] {
+export function getCheckups(age: number): string[] {
   const result: string[] = []
   if (age >= 30) result.push(...(AGE_CHECKUPS['30+'] ?? []))
   if (age >= 35) result.push(...(AGE_CHECKUPS['35+'] ?? []))

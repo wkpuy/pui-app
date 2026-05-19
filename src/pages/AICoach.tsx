@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { chatWithCoach, analyzePatterns, initGemini } from '../api/gemini'
-import { getAgeDetail } from '../utils/calculations'
+import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
+import { BIOMARKERS, getCheckups } from './Health'
 
 interface Message { role: 'user' | 'assistant'; content: string; time: string }
 
@@ -129,12 +130,27 @@ export default function AICoach() {
       return days <= 365
     }).reduce((s, d) => s + d.totalReceived, 0) ?? 0
 
-    // ── Health (latest record full) ─────────────────────────
+    // ── Health (latest record analyzed against reference ranges) ────────────
     const lh = allHealthRecords?.[0]
-    const healthLines = lh ? Object.entries(lh)
-      .filter(([k, v]) => v !== undefined && v !== null && v !== '' && k !== 'id' && k !== 'date' && k !== 'notes' && typeof v !== 'object')
-      .map(([k, v]) => `  - ${k}: ${v}`)
-      .join('\n') : '  (ยังไม่มีผลตรวจ)'
+    const STATUS_LABEL: Record<string, string> = { optimal: '✨Optimal', good: '✓ปกติ', warning: '⚠️เฝ้าระวัง', high: '❗ผิดปกติ' }
+    const analyzed: { key: string; label: string; value: number; unit: string; status: string; optimal: string; normal: string }[] = []
+    if (lh) {
+      for (const [k, v] of Object.entries(lh)) {
+        if (typeof v !== 'number') continue
+        const def = BIOMARKERS[k]
+        if (!def) continue
+        const status = def.evaluate(v)
+        analyzed.push({ key: k, label: def.label, value: v, unit: def.unit, status: STATUS_LABEL[status], optimal: def.optimal, normal: def.normal })
+      }
+    }
+    const concerning = analyzed.filter(a => a.status.includes('เฝ้าระวัง') || a.status.includes('ผิดปกติ'))
+    const optimalCount = analyzed.filter(a => a.status.includes('Optimal')).length
+    const healthLines = analyzed.length > 0
+      ? analyzed.map(a => `  - ${a.label}: ${a.value} ${a.unit} → ${a.status} (Optimal ${a.optimal}, ปกติ ${a.normal})`).join('\n')
+      : '  (ยังไม่มีผลตรวจ)'
+    const concernLines = concerning.length > 0
+      ? '\n  🔴 ค่าที่ควรให้ความสนใจ: ' + concerning.map(a => `${a.label} ${a.value}`).join(', ')
+      : ''
 
     // Health daily — avg over last 7 + 30 days
     const recent7 = (allDaily ?? []).slice(0, 7)
@@ -153,9 +169,23 @@ export default function AICoach() {
   ค่าเฉลี่ย 7 วัน: นอน ${num(avg(recent7, 'sleepTotal'), 1)} ชม., HRV ${num(avg(recent7, 'hrv'))}, RHR ${num(avg(recent7, 'restingHeartRate'))}, Recovery ${num(avg(recent7, 'recoveryScore'))}%, ก้าว ${num(avg(recent7, 'steps'))}
   ค่าเฉลี่ย 30 วัน: นอน ${num(avg(recent30, 'sleepTotal'), 1)} ชม., HRV ${num(avg(recent30, 'hrv'))}, RHR ${num(avg(recent30, 'restingHeartRate'))}, VO2max ${num(avg(recent30, 'vo2max'), 1)}` : '  (ไม่มีข้อมูลกิจกรรมรายวัน)'
 
-    // BMI
+    // BMI + Biological Age
     const latestWeight = allDaily?.find(d => d.weightKg)?.weightKg
     const bmi = profile && latestWeight ? latestWeight / Math.pow(profile.heightCm / 100, 2) : null
+    const bmiCat = bmi ? (bmi < 18.5 ? 'น้ำหนักน้อย' : bmi < 25 ? 'ปกติ' : bmi < 30 ? 'น้ำหนักเกิน' : 'อ้วน') : null
+    const ageNow = age?.years ?? 35
+    const latestDailyForBio = allDaily?.[0]
+    const bioAge = lh && latestDailyForBio ? calcBiologicalAge(ageNow, {
+      systolic: lh.systolic, glucose: lh.glucose, ldl: lh.ldl, hdl: lh.hdl,
+      vo2max: latestDailyForBio.vo2max, sleepHours: latestDailyForBio.sleepTotal,
+      steps: latestDailyForBio.steps, bmi: bmi ?? undefined,
+    }) : null
+
+    // Age-based recommended checkups
+    const checkups = getCheckups(ageNow)
+
+    // Health daily — recent activity
+    const recentVo2max = (allDaily ?? []).find(d => d.vo2max !== undefined)?.vo2max
 
     // ── Finance ─────────────────────────────────────────────
     const thisMonth = today.slice(0, 7)
@@ -201,7 +231,9 @@ export default function AICoach() {
 
 ═══ โปรไฟล์ ═══
 - ${profile?.nickname ?? '-'} อายุ ${age?.years ?? '-'} ปี ${age?.months ?? 0} เดือน, เพศ ${profile?.gender === 'male' ? 'ชาย' : 'หญิง'}, ส่วนสูง ${profile?.heightCm ?? '-'} ซม.
-${latestWeight ? `- น้ำหนักล่าสุด ${num(latestWeight, 1)} กก., BMI ${bmi?.toFixed(1) ?? '-'}` : ''}
+${latestWeight ? `- น้ำหนักล่าสุด ${num(latestWeight, 1)} กก., BMI ${bmi?.toFixed(1) ?? '-'} (${bmiCat ?? '-'})` : ''}
+${bioAge ? `- 🧬 อายุชีวภาพ (Biological Age): ${bioAge.toFixed(1)} ปี (${bioAge < ageNow ? `ดีกว่าอายุจริง ${(ageNow - bioAge).toFixed(1)} ปี` : bioAge > ageNow ? `สูงกว่าอายุจริง ${(bioAge - ageNow).toFixed(1)} ปี` : 'เท่าอายุจริง'})` : ''}
+${recentVo2max ? `- 🫁 VO₂max ล่าสุด: ${recentVo2max.toFixed(1)} ml/kg/min` : ''}
 
 ═══ การลงทุน ═══
 - พอร์ตรวม: ต้นทุน ${num(totalCost)} บาท, ปัจจุบัน ${num(totalCurr)} บาท
@@ -213,6 +245,7 @@ ${investmentLines || '  (ยังไม่มีพอร์ต)'}
 ปันผลรวมทั้งหมด: ${num(totalDiv)} บาท | 12 เดือนที่ผ่านมา: ${num(div12mo)} บาท
 
 ═══ สุขภาพ (ผลตรวจล่าสุด ${lh?.date ?? '-'}) ═══
+สรุป: ${analyzed.length > 0 ? `${optimalCount}/${analyzed.length} ตัวที่อยู่ในเกณฑ์ Optimal` : 'ไม่มีข้อมูล'}${concernLines}
 ${healthLines}
 
 ═══ กิจกรรมรายวัน ═══${dailyLines}
@@ -243,12 +276,59 @@ ${retirement ? `- เป้าอายุเกษียณ ${retirement.target
 ═══ เงินสำรองฉุกเฉิน ═══
 - ปัจจุบัน ${num(emergencyFund?.currentAmount)} บาท, เป้า ${emergencyFund?.targetMonths ?? '-'} เดือน
 
-ข้อปฏิบัติ:
-1. ตอบจากข้อมูลข้างต้นเป็นหลัก คำนวณตัวเลขให้ถูก
-2. ถ้าผู้ใช้ถามเรื่องราคาหุ้นล่าสุด ให้อ้างอิงราคา/หน่วยจากรายการลงทุน (ราคาถูก sync จาก Yahoo Finance ทุกครั้งที่เข้าหน้านี้)
-3. ถ้าข้อมูลไม่มีหรือไม่พอ บอกตรงๆ และแนะนำให้ไปเพิ่มข้อมูลที่หน้าไหน
-4. ถ้าเป็นคำถามที่ต้องใช้ข้อมูลภายนอก (เช่นแนวโน้มตลาด, ข่าวบริษัท) ให้ตอบจากความรู้ทั่วไปที่มี แต่บอก disclaimer
-5. ตอบสั้น กระชับ ไม่อ้อม`
+═══ การตรวจที่แนะนำตามอายุ ${ageNow} ═══
+${checkups.map(c => `- ${c}`).join('\n')}
+
+═══ องค์ความรู้ที่ต้องใช้อ้างอิง (Longevity & Finance) ═══
+
+[Cardiometabolic / Longevity (Peter Attia framework)]
+• ApoB Optimal <60–80 mg/dL — ปัจจัยทำนาย ASCVD ดีกว่า LDL
+• Lp(a) Optimal <30 mg/dL — พันธุกรรม, ลดยาก แต่บอก risk
+• hs-CRP Optimal <1.0 mg/L — inflammation marker
+• Fasting Insulin Optimal <5 µU/mL → HOMA-IR <1.5 = insulin sensitive
+• Homocysteine Optimal <9 µmol/L (แก้ด้วย B12, B6, folate)
+• Omega-3 Index Optimal >8% (DHA+EPA)
+• Vitamin D Optimal 50–80 ng/mL
+• Triglyceride/HDL ratio <2 = ดี, >3.5 = insulin resistance
+• HbA1c Optimal <5.4%
+• Blood Pressure Optimal <120/<80
+
+[Fitness / VO₂max thresholds — แนวโน้มอายุยืน]
+• VO₂max ≥50 ml/kg/min = Excellent (top decile)
+• 42–49 = Good, 35–41 = Average, <35 = Low → ลด mortality risk 5x ถ้าพ้น Low
+• Zone 2 training 3 ครั้ง/สัปดาห์ × 45 นาที + VO₂max interval 1 ครั้ง
+
+[Strength / Body composition]
+• Grip strength ≥27 kg (ผู้หญิง) — sarcopenia marker
+• Muscle mass > 30% body weight
+• Bone density T-score >-1
+
+[Investment principles]
+• Diversification: หุ้นไทย/ต่างประเทศ/กองทุน/พันธบัตร ≈ Age Rule (100−อายุ)% ในหุ้น
+• ปันผล: yield ดี ~3–5% ต่อปี, จ่ายสม่ำเสมอ ≥3 ปี
+• Cost averaging > timing the market
+• Rebalance ปีละ 1 ครั้ง
+
+[Retirement (4% Rule / Trinity Study)]
+• ต้องมี = ค่าใช้จ่ายต่อปี × 25
+• Safe withdrawal rate 4%/ปี = เงินอยู่ได้ ~30 ปี
+• PVD: รวมเป็นสินทรัพย์เพื่อเกษียณ
+
+[Personal Finance]
+• Emergency Fund 6 เดือนของค่าใช้จ่าย (ไม่ใช่รายรับ)
+• Debt-to-income ratio <36%, ผ่อนบ้าน <28%
+• Savings rate 20%+ ของรายได้
+• 50/30/20 rule: 50% needs, 30% wants, 20% savings/debt
+
+═══ ข้อปฏิบัติ (สำคัญ) ═══
+1. **คำนวณก่อนตอบ** — ใช้เลขจากข้อมูลจริง อย่าเดา ตรวจสูตรให้ถูก
+2. **อ้างอิงเกณฑ์** — ระบุค่า Optimal/Normal เทียบกับค่าของผู้ใช้ทุกครั้งที่พูดเรื่องสุขภาพ/การเงิน
+3. **สรุปก่อน รายละเอียดทีหลัง** — บรรทัดแรกตอบคำถามตรงๆ แล้วค่อยขยาย
+4. **ระบุที่ต้องเพิ่มข้อมูล** — ถ้าขาด บอกชัดว่าไปเพิ่มหน้าไหน (สุขภาพ/ลงทุน/เงินเดือน ฯลฯ)
+5. **แนะนำเชิงปฏิบัติ** — ให้ next action ที่ชัดเจน 1-3 ข้อ ไม่ใช่ทฤษฎีลอยๆ
+6. **เรื่องนอกแอพ** (ข่าวบริษัท/ตลาด) — ตอบจาก general knowledge + ระบุว่ายังไม่ live data
+7. **Disclaimer การแพทย์** — ค่าผิดปกติให้แนะนำพบแพทย์, ไม่วินิจฉัยเอง
+8. **กระชับ** — ไม่ใช้คำฟุ่มเฟือย ใช้ bullet/รายการเมื่อเหมาะ`
   }
 
   async function buildSmartAlerts() {
