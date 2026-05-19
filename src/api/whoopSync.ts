@@ -1,4 +1,4 @@
-import { db } from '../db'
+import { db, pruneSyncLog } from '../db'
 import { fetchWhoopData, getValidTokens, loadWhoopTokens, saveWhoopTokens } from './whoop'
 
 export interface WhoopSyncResult {
@@ -74,6 +74,7 @@ export async function syncWhoopAndSave(days = 90): Promise<WhoopSyncResult> {
     status: 'success',
     notes: `+${added} ใหม่, ${updated} อัปเดต`,
   })
+  pruneSyncLog()
 
   if (records.length === 0) {
     return { ok: false, message: 'ไม่มีข้อมูลจาก WHOOP', added: 0, updated: 0, total: 0 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db'
+import { db, pruneSyncLog, getStorageStats } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
 import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
@@ -24,6 +24,12 @@ export default function Settings() {
   const [whoopSyncing, setWhoopSyncing] = useState(false)
   const [whoopResult, setWhoopResult] = useState<{ text: string; ok: boolean } | null>(null)
   const [whoopDebug, setWhoopDebug] = useState<string>('')
+  const [storageStats, setStorageStats] = useState<Awaited<ReturnType<typeof getStorageStats>> | null>(null)
+
+  async function loadStats() {
+    const s = await getStorageStats()
+    setStorageStats(s)
+  }
 
   useEffect(() => {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
@@ -93,6 +99,7 @@ export default function Settings() {
         added++
       }
       await db.syncLog.add({ source: 'gmail', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} records, ${skipped} skipped` })
+      pruneSyncLog()
       setSyncStatus(`✓ Sync เสร็จ: ${events.length} นัดหมาย, +${added} รายการธนาคาร${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`)
     } catch (e: any) {
       setSyncStatus(`❌ Sync ล้มเหลว: ${e.message}`)
@@ -424,6 +431,50 @@ export default function Settings() {
               </div>
               <span className="text-gray-400">→</span>
             </button>
+          </Card>
+        </div>
+
+        {/* Storage Stats */}
+        <SectionLabel>พื้นที่จัดเก็บข้อมูล</SectionLabel>
+        <div className="mx-4 mb-4">
+          <Card>
+            {!storageStats ? (
+              <button onClick={loadStats} className="w-full text-[13px] font-semibold text-indigo-600 py-2 active:scale-95">
+                📊 ดูสถิติข้อมูลใน Storage
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[13px] font-bold text-gray-700">รวมทั้งหมด</span>
+                  <span className="text-[13px] font-bold text-indigo-600">{storageStats.total.toLocaleString()} rows</span>
+                </div>
+                {([
+                  ['💬 แชท AI', storageStats.chatMessages, 500, true],
+                  ['💰 รายการการเงิน', storageStats.financeRecords, 2000, false],
+                  ['🏃 กิจกรรมรายวัน', storageStats.healthDaily, 1000, false],
+                  ['🩺 ผลตรวจสุขภาพ', storageStats.healthRecords, 200, false],
+                  ['📋 Sync log', storageStats.syncLog, 50, true],
+                  ['💊 ยา/วิตามิน log', storageStats.medicationLogs, 500, false],
+                  ['📦 อื่นๆ', storageStats.investments + storageStats.dividends + storageStats.installments + storageStats.subscriptions + storageStats.taxRecords + storageStats.salaryRecords + storageStats.medications, 500, false],
+                ] as [string, number, number, boolean][]).map(([label, count, warn, canClear]) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span className="text-[12px] text-gray-500 flex-1">{label}</span>
+                    <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full ${count > warn ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {count}
+                    </span>
+                    {canClear && count > 0 && label.includes('แชท') && (
+                      <button onClick={async () => { if (confirm('ล้างประวัติแชท?')) { await db.chatMessages.clear(); loadStats() } }}
+                        className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded active:scale-95">ล้าง</button>
+                    )}
+                    {canClear && count > 50 && label.includes('log') && (
+                      <button onClick={async () => { await pruneSyncLog(10); loadStats() }}
+                        className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded active:scale-95">Trim</button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={loadStats} className="text-[11px] text-gray-400 pt-1 active:scale-95">🔄 รีเฟรช</button>
+              </div>
+            )}
           </Card>
         </div>
 

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { db } from '../db'
+import { db, pruneSyncLog } from '../db'
 import { fetchGmailBankMessages, parseBankEmail } from '../api/google'
 
 export function useAutoSync() {
@@ -38,6 +38,7 @@ async function runBankAutoSync() {
         status: 'success',
         notes: `auto-48h: +${added} รายการ`,
       })
+      pruneSyncLog()
     }
   } catch {
     // Silent fail — don't interrupt the user's app experience
