@@ -629,17 +629,21 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
       {/* Biological Age Trend */}
       {(() => {
         const records = [...(allRecords ?? [])].sort((a: any, b: any) => a.date.localeCompare(b.date))
-        if (records.length < 2) return null
-        const dailyMap = new Map((allDaily ?? []).map((d: any) => [d.date, d]))
+        const recordMap = new Map(records.map((r: any) => [r.date, r]))
+        const latestRecord = records[records.length - 1]
+        // ใช้ daily data เป็น timeline หลัก (ถ้ามี blood test ที่ตรงวันก็ใช้, ถ้าไม่มีก็ใช้ latest blood test)
+        const dailyArr = [...(allDaily ?? [])].sort((a: any, b: any) => a.date.localeCompare(b.date))
+        // Sample weekly (every 7th record) เพื่อให้ chart ไม่หนาแน่นไป
+        const sampled = dailyArr.length > 14 ? dailyArr.filter((_, i) => i % 7 === 0 || i === dailyArr.length - 1) : dailyArr
         const bioPoints: { date: string; bio: number }[] = []
-        for (const r of records) {
-          const daily: any = dailyMap.get(r.date) ?? [...dailyMap.values()].sort((a: any, b: any) => Math.abs(new Date(a.date).getTime() - new Date(r.date).getTime()) - Math.abs(new Date(b.date).getTime() - new Date(r.date).getTime()))[0]
+        for (const daily of sampled) {
+          const r: any = recordMap.get(daily.date) ?? latestRecord
           const bmi = profile?.heightCm && daily?.weightKg ? (daily.weightKg as number) / Math.pow(profile.heightCm / 100, 2) : undefined
           const bio = calcBiologicalAge(age, {
-            systolic: r.systolic, glucose: r.glucose, ldl: r.ldl, hdl: r.hdl,
+            systolic: r?.systolic, glucose: r?.glucose, ldl: r?.ldl, hdl: r?.hdl,
             vo2max: daily?.vo2max as number | undefined, sleepHours: daily?.sleepTotal as number | undefined, steps: daily?.steps as number | undefined, bmi,
           })
-          bioPoints.push({ date: r.date, bio })
+          bioPoints.push({ date: daily.date, bio })
         }
         if (bioPoints.length < 2) return null
         const latest = bioPoints[bioPoints.length - 1]

@@ -133,9 +133,14 @@ export default function Settings() {
       }
 
       setWhoopResult({ text: `⏳ [3/3] บันทึก ${records.length} วัน...`, ok: true })
+      // VO2max estimate from RHR (Uth–Sørensen–Overgaard–Pedersen formula)
+      // VO2max ≈ 15.3 × (HRmax / RHR), HRmax ≈ 208 - 0.7 × age (Tanaka)
+      const ageNow = profile?.dob ? Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25 * 24 * 3600 * 1000)) : null
+      const hrMax = ageNow ? 208 - 0.7 * ageNow : null
       let added = 0, updated = 0
       for (const r of records) {
         const existing = await db.healthDaily.where('date').equals(r.date).first()
+        const vo2max = hrMax && r.restingHeartRate ? Math.round(15.3 * (hrMax / r.restingHeartRate) * 10) / 10 : undefined
         const payload = {
           date: r.date,
           recoveryScore: r.recoveryScore,
@@ -150,6 +155,7 @@ export default function Settings() {
           strain: r.strain,
           caloriesBurned: r.caloriesBurned,
           bloodOxygen: r.bloodOxygen,
+          vo2max,
           source: 'whoop',
         }
         if (existing) {
