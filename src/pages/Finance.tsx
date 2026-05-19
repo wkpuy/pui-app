@@ -44,7 +44,28 @@ const CAT_COLORS: Record<string, string> = {
   โอนออก: 'bg-slate-100 text-slate-600',
 }
 
-type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'emergency'
+type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'emergency' | 'budget'
+
+// ── Budget config (localStorage) ──────────────────────────────────────────────
+interface BudgetConfig {
+  internet: number          // ค่าเน็ต/เดือน
+  utilities: number         // ค่าน้ำ+ไฟ/เดือน
+  condoFeeAnnual: number    // ค่าส่วนกลาง/ปี → ÷12
+  insuranceAnnual: number   // ค่าประกัน/ปี → ÷12
+  familyBudget: number      // ครอบครัว เป้า/เดือน
+  foodBudget: number        // อาหาร เป้า/เดือน
+  shoppingBudget: number    // ช็อปปิ้ง เป้า/เดือน
+  otherBudget: number       // อื่นๆ เป้า/เดือน
+}
+const BUDGET_DEFAULT: BudgetConfig = {
+  internet: 0, utilities: 0, condoFeeAnnual: 0, insuranceAnnual: 0,
+  familyBudget: 0, foodBudget: 0, shoppingBudget: 0, otherBudget: 0,
+}
+function loadBudget(): BudgetConfig {
+  try { return { ...BUDGET_DEFAULT, ...JSON.parse(localStorage.getItem('monthly_budget_v1') ?? '{}') } }
+  catch { return BUDGET_DEFAULT }
+}
+function saveBudget(c: BudgetConfig) { localStorage.setItem('monthly_budget_v1', JSON.stringify(c)) }
 
 export default function Finance() {
   const navigate = useNavigate()
@@ -86,7 +107,7 @@ export default function Finance() {
 
       {/* Tabs */}
       <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['emergency', 'ฉุกเฉิน']] as [Tab, string][]).map(([t, l]) => (
+        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน'], ['emergency', 'ฉุกเฉิน']] as [Tab, string][]).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
             {l}
@@ -113,6 +134,7 @@ export default function Finance() {
         {tab === 'yearly' && <YearlyTab records={records ?? []} />}
         {tab === 'installments' && <InstallmentsTab installments={installments ?? []} />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
+        {tab === 'budget' && <BudgetTab month={month} />}
         {tab === 'emergency' && <EmergencyFundTab emergency={emergency} monthlyExpense={expense} />}
       </div>
 
@@ -1730,6 +1752,265 @@ function FinanceForm({ editRecord, onClose }: { editRecord: FinanceRecord | null
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
         <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
           {editRecord ? 'บันทึกการแก้ไข' : 'บันทึก'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Budget Tab ────────────────────────────────────────────────────────────────
+function BudgetTab({ month }: { month: string }) {
+  const [config, setConfig] = useState<BudgetConfig>(loadBudget)
+  const [showEdit, setShowEdit] = useState(false)
+
+  const year = parseInt(month.slice(0, 4))
+  const monthStart = `${month}-01`
+  const monthEnd = `${month}-31`
+
+  const salaryRecords = useLiveQuery(() => db.salaryRecords.orderBy('year').toArray())
+  const taxRecords = useLiveQuery(() => db.taxRecords.orderBy('year').toArray())
+  const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
+  const monthRecords = useLiveQuery(
+    () => db.financeRecords.where('date').between(monthStart, monthEnd, true, true).filter(r => r.type === 'expense').toArray(),
+    [monthStart, monthEnd]
+  )
+
+  const salary = salaryRecords?.find(s => s.year === year)
+  const baseSalary = salary?.baseSalary ?? 0
+  const pvd = salary ? Math.round(baseSalary * (salary.pvdEmployeeRate / 100)) : 0
+  const SS = 750
+  const taxRec = taxRecords?.find(t => t.year === year + 543)
+  const withholdingMonthly = taxRec ? Math.round((taxRec.withholdingTax ?? 0) / 12) : 0
+  const netTakeHome = baseSalary - SS - pvd - withholdingMonthly
+
+  const condoMonthly = Math.round(config.condoFeeAnnual / 12)
+  const insuranceMonthly = Math.round(config.insuranceAnnual / 12)
+  const subTotal = Math.round(
+    (subscriptions ?? []).filter(s => s.active).reduce((s, x) =>
+      s + (x.frequency === 'monthly' ? x.amount : x.frequency === 'quarterly' ? x.amount / 3 : x.amount / 12), 0)
+  )
+
+  const actual = (monthRecords ?? []).reduce((acc, r) => {
+    acc[r.category] = (acc[r.category] ?? 0) + r.amount; return acc
+  }, {} as Record<string, number>)
+
+  const aFood     = actual['อาหาร']     ?? 0
+  const aShopping = actual['ช้อปปิ้ง'] ?? 0
+  const aFamily   = actual['ครอบครัว'] ?? 0
+  const aOther    = actual['อื่นๆ']    ?? 0
+
+  const totalFixed   = config.internet + config.utilities + condoMonthly + insuranceMonthly + subTotal
+  const budgetTotal  = totalFixed + config.familyBudget + config.foodBudget + config.shoppingBudget + config.otherBudget
+  const actualTotal  = totalFixed + aFamily + aFood + aShopping + aOther
+  const budgetRemain = netTakeHome - budgetTotal
+  const actualRemain = netTakeHome - actualTotal
+  const isOver = actualRemain < budgetRemain
+
+  function updateConfig(updates: Partial<BudgetConfig>) {
+    const next = { ...config, ...updates }
+    setConfig(next)
+    saveBudget(next)
+  }
+
+  return (
+    <div className="px-4 py-4 pb-8 space-y-3">
+      {/* Hero banner */}
+      <div className={`rounded-2xl p-4 text-white ${isOver ? 'bg-gradient-to-br from-rose-500 to-red-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
+        <div className="text-[11px] opacity-75 mb-0.5">เงินที่ควรเหลือ / เหลือจริง</div>
+        <div className="text-3xl font-bold">{formatCurrency(budgetRemain, 0)}</div>
+        <div className="text-[11px] opacity-75 mt-0.5">จากเงินเดือน {formatCurrency(baseSalary, 0)}</div>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <div className="bg-white/20 rounded-xl p-2.5 text-center">
+            <div className="text-[10px] opacity-80">ตามเป้า</div>
+            <div className="text-[15px] font-bold">{formatCurrency(budgetRemain, 0)}</div>
+          </div>
+          <div className="bg-white/20 rounded-xl p-2.5 text-center">
+            <div className="text-[10px] opacity-80">จริงเดือนนี้</div>
+            <div className={`text-[15px] font-bold ${isOver ? 'text-red-200' : 'text-green-200'}`}>
+              {formatCurrency(actualRemain, 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Auto deductions */}
+      <Card>
+        <div className="flex items-center justify-between mb-2">
+          <CardTitle>หักจากเงินเดือน (อัตโนมัติ)</CardTitle>
+          {!salary && <span className="text-[10px] text-amber-600">⚠️ ยังไม่มีข้อมูลเงินเดือน</span>}
+        </div>
+        <BudRow label="เงินเดือน" amount={baseSalary} income />
+        <BudRow label="ประกันสังคม" amount={SS} />
+        <BudRow label="หัก PVD" amount={pvd} note={salary ? `${salary.pvdEmployeeRate}%` : undefined} />
+        <BudRow label="หักภาษี ณ ที่จ่าย" amount={withholdingMonthly} note="/12" />
+        <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
+          <span className="text-gray-700">รับสุทธิ</span>
+          <span className="text-emerald-600">{formatCurrency(netTakeHome, 0)}</span>
+        </div>
+      </Card>
+
+      {/* Fixed costs */}
+      <Card>
+        <div className="flex items-center justify-between mb-2">
+          <CardTitle>ค่าใช้จ่ายคงที่</CardTitle>
+          <button onClick={() => setShowEdit(true)} className="text-[11px] text-indigo-600 font-semibold bg-indigo-50 px-2.5 py-1 rounded-lg">แก้ไข ✏️</button>
+        </div>
+        <BudRow label="ค่าเน็ต" amount={config.internet} />
+        <BudRow label="ค่าน้ำ / ค่าไฟ" amount={config.utilities} />
+        <BudRow label="ค่าส่วนกลาง" amount={condoMonthly} note="รายปี÷12" />
+        <BudRow label="ค่าประกัน" amount={insuranceMonthly} note="รายปี÷12" />
+        <BudRow label="📱 Subscription" amount={subTotal} note="auto" />
+        <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
+          <span className="text-gray-700">รวมคงที่</span>
+          <span className="text-gray-900">−{formatCurrency(totalFixed, 0)}</span>
+        </div>
+      </Card>
+
+      {/* Variable budget vs actual */}
+      <Card>
+        <div className="flex items-center justify-between mb-1">
+          <CardTitle>ค่าใช้จ่ายแปรผัน</CardTitle>
+          <button onClick={() => setShowEdit(true)} className="text-[11px] text-indigo-600 font-semibold bg-indigo-50 px-2.5 py-1 rounded-lg">ตั้งเป้า ✏️</button>
+        </div>
+        <div className="text-[10px] text-gray-400 mb-2">เป้าหมาย vs จริงเดือนนี้</div>
+        <BudVsActual label="🍜 อาหาร"      budget={config.foodBudget}     actual={aFood} />
+        <BudVsActual label="🛍️ ช้อปปิ้ง"  budget={config.shoppingBudget} actual={aShopping} />
+        <BudVsActual label="👨‍👩‍👧 ครอบครัว" budget={config.familyBudget}   actual={aFamily} />
+        <BudVsActual label="📦 อื่นๆ"      budget={config.otherBudget}    actual={aOther} />
+      </Card>
+
+      {/* Summary */}
+      <Card>
+        <CardTitle>สรุป</CardTitle>
+        <div className="mt-2 space-y-1.5 text-[13px]">
+          <div className="flex justify-between"><span className="text-gray-500">รับสุทธิ</span><span className="font-semibold text-emerald-600">{formatCurrency(netTakeHome, 0)}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">รายจ่ายตามเป้า</span><span className="font-semibold text-gray-700">−{formatCurrency(budgetTotal, 0)}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">รายจ่ายจริง</span><span className="font-semibold text-red-500">−{formatCurrency(actualTotal, 0)}</span></div>
+          <div className="border-t pt-2 mt-1 space-y-1">
+            <div className="flex justify-between font-bold text-[14px]">
+              <span className="text-gray-700">เป้าที่ควรเหลือ</span>
+              <span className={budgetRemain >= 0 ? 'text-emerald-600' : 'text-red-500'}>{formatCurrency(budgetRemain, 0)}</span>
+            </div>
+            <div className="flex justify-between font-bold text-[14px]">
+              <span className="text-gray-700">เหลือจริง</span>
+              <span className={actualRemain >= 0 ? 'text-emerald-600' : 'text-red-500'}>{formatCurrency(actualRemain, 0)}</span>
+            </div>
+          </div>
+          {isOver ? (
+            <div className="bg-red-50 rounded-xl px-3 py-2 text-[12px] text-red-600 font-semibold mt-1">
+              ⚠️ ใช้เกินเป้าไป {formatCurrency(budgetRemain - actualRemain, 0)}
+            </div>
+          ) : (
+            <div className="bg-green-50 rounded-xl px-3 py-2 text-[12px] text-green-700 font-semibold mt-1">
+              ✅ อยู่ในเป้า เหลือดีกว่าแผน {formatCurrency(actualRemain - budgetRemain, 0)}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {showEdit && <BudgetConfigSheet config={config} onSave={updateConfig} onClose={() => setShowEdit(false)} />}
+    </div>
+  )
+}
+
+function BudRow({ label, amount, income, note }: { label: string; amount: number; income?: boolean; note?: string }) {
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+      <div>
+        <span className="text-[13px] text-gray-700">{label}</span>
+        {note && <span className="text-[10px] text-gray-400 ml-1.5">{note}</span>}
+      </div>
+      <span className={`text-[13px] font-semibold ${income ? 'text-emerald-600' : 'text-gray-700'}`}>
+        {income ? '' : '−'}{formatCurrency(amount, 0)}
+      </span>
+    </div>
+  )
+}
+
+function BudVsActual({ label, budget, actual }: { label: string; budget: number; actual: number }) {
+  const diff = actual - budget
+  const over = budget > 0 && diff > 0
+  const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0
+  return (
+    <div className="py-2 border-b border-gray-50 last:border-0">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[13px] text-gray-700">{label}</span>
+        <div className="flex items-center gap-2 text-[12px]">
+          <span className="text-gray-400">เป้า {budget > 0 ? formatCurrency(budget, 0) : '—'}</span>
+          <span className="font-semibold text-gray-800">จริง {formatCurrency(actual, 0)}</span>
+        </div>
+      </div>
+      {budget > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+            <div className={`h-1.5 rounded-full transition-all ${over ? 'bg-red-400' : 'bg-emerald-400'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <span className={`text-[11px] font-semibold w-24 text-right ${over ? 'text-red-500' : 'text-emerald-600'}`}>
+            {over ? `เกิน +${formatCurrency(diff, 0)}` : `เหลือ ${formatCurrency(-diff, 0)}`}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BudgetConfigSheet({ config, onSave, onClose }: {
+  config: BudgetConfig
+  onSave: (updates: Partial<BudgetConfig>) => void
+  onClose: () => void
+}) {
+  const [local, setLocal] = useState({ ...config })
+
+  function f(key: keyof BudgetConfig) {
+    return (
+      <input
+        type="number" placeholder="0"
+        value={local[key] || ''}
+        onChange={e => setLocal(v => ({ ...v, [key]: parseFloat(e.target.value) || 0 }))}
+        className="border border-gray-200 rounded-xl px-3 py-2 text-sm w-full mt-0.5"
+      />
+    )
+  }
+
+  function labeledField(key: keyof BudgetConfig, label: string, note?: string, isAnnual?: boolean) {
+    return (
+      <div className="mb-3" key={key}>
+        <div className="flex justify-between">
+          <span className="text-[12px] font-semibold text-gray-600">{label}</span>
+          {isAnnual && local[key] > 0 && (
+            <span className="text-[10px] text-gray-400">÷12 = {formatCurrency(Math.round(local[key] / 12), 0)}/เดือน</span>
+          )}
+          {note && !isAnnual && <span className="text-[10px] text-gray-400">{note}</span>}
+        </div>
+        {f(key)}
+      </div>
+    )
+  }
+
+  function save() { onSave(local); onClose() }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold">ตั้งค่างบประมาณ</h3>
+          <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
+        </div>
+
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">ค่าใช้จ่ายคงที่ / เดือน</div>
+        {labeledField('internet', 'ค่าเน็ต')}
+        {labeledField('utilities', 'ค่าน้ำ + ค่าไฟ (รวม)')}
+        {labeledField('condoFeeAnnual', 'ค่าส่วนกลางคอนโด', undefined, true)}
+        {labeledField('insuranceAnnual', 'ค่าประกัน (รวมทุกกรมธรรม์/ปี)', undefined, true)}
+
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">เป้าหมายรายจ่ายแปรผัน / เดือน</div>
+        {labeledField('foodBudget', '🍜 อาหาร')}
+        {labeledField('shoppingBudget', '🛍️ ช้อปปิ้ง')}
+        {labeledField('familyBudget', '👨‍👩‍👧 ครอบครัว')}
+        {labeledField('otherBudget', '📦 อื่นๆ')}
+
+        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 w-full mt-2">
+          บันทึก
         </button>
       </div>
     </div>
