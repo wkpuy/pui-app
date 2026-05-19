@@ -26,10 +26,19 @@ export default function Investment() {
   const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [sortKey, setSortKey] = useState<'default' | 'gain' | 'loss' | 'value'>('default')
 
   const investments = useLiveQuery(() => db.investments.orderBy('type').toArray())
   const dividends = useLiveQuery(() => db.dividends.toArray())
-  const filtered = investments?.filter(i => tab === 'all' || i.type === tab) ?? []
+  const baseFiltered = investments?.filter(i => tab === 'all' || i.type === tab) ?? []
+  const filtered = [...baseFiltered].sort((a, b) => {
+    const pctA = a.costBasis > 0 ? (a.currentValue - a.costBasis) / a.costBasis : 0
+    const pctB = b.costBasis > 0 ? (b.currentValue - b.costBasis) / b.costBasis : 0
+    if (sortKey === 'gain') return pctB - pctA
+    if (sortKey === 'loss') return pctA - pctB
+    if (sortKey === 'value') return b.currentValue - a.currentValue
+    return 0
+  })
   // exclude insurance from gain/loss totals
   const investable = investments?.filter(i => i.type !== 'insurance') ?? []
   const totalCost = investable.reduce((s, i) => s + i.costBasis, 0)
@@ -143,11 +152,27 @@ export default function Investment() {
           ))}
         </div>
 
+        {/* Sort controls */}
+        {filtered.length > 1 && (
+          <div className="flex items-center gap-1.5 px-4 py-2 bg-gray-50 border-b border-gray-100 overflow-x-auto">
+            <span className="text-[11px] text-gray-400 font-semibold flex-shrink-0">เรียง:</span>
+            {([['default', '📋 ปกติ'], ['gain', '▲ กำไร%'], ['loss', '▼ ขาดทุน%'], ['value', '💰 มูลค่า']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setSortKey(k)}
+                className={`flex-shrink-0 text-[12px] font-semibold px-2.5 py-1 rounded-lg transition-colors ${sortKey === k ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 shadow-sm'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* List */}
         {filtered.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <div className="text-4xl mb-3">📭</div>
-            <div>ยังไม่มีข้อมูลการลงทุน</div>
+          <div className="text-center py-16 text-gray-400 px-8">
+            <div className="text-5xl mb-3">{tab === 'all' ? '📭' : TYPE_ICONS[tab as InvestmentType] ?? '📭'}</div>
+            <div className="font-semibold text-gray-600 mb-1">
+              {tab === 'all' ? 'ยังไม่มีข้อมูลการลงทุน' : `ยังไม่มี${TYPE_LABELS[tab as InvestmentType]}`}
+            </div>
+            <div className="text-[13px]">กด ＋ เพิ่ม เพื่อเพิ่มพอร์ตแรก</div>
           </div>
         ) : (
           <div className="mx-4 mt-3 bg-white rounded-2xl overflow-hidden shadow-sm">

@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { db } from '../db'
 import { getAgeDetail, formatCurrency, calcLifeScore } from '../utils/calculations'
 import { Card, Divider } from '../components/Card'
@@ -16,10 +16,33 @@ export default function Dashboard() {
   const financeRecords = useLiveQuery(() => db.financeRecords.toArray())
 
   const [time, setTime] = useState(new Date())
+  const [showWeightInput, setShowWeightInput] = useState(false)
+  const [weightVal, setWeightVal] = useState('')
+  const [weightSaving, setWeightSaving] = useState(false)
+  const weightRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    if (showWeightInput) setTimeout(() => weightRef.current?.focus(), 100)
+  }, [showWeightInput])
+
+  async function saveQuickWeight() {
+    const w = parseFloat(weightVal)
+    if (!w || w < 20 || w > 300) return
+    setWeightSaving(true)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const existing = await db.healthDaily.where('date').equals(today).first()
+      if (existing) await db.healthDaily.update(existing.id!, { weightKg: w })
+      else await db.healthDaily.add({ date: today, weightKg: w })
+      setWeightVal('')
+      setShowWeightInput(false)
+    } finally { setWeightSaving(false) }
+  }
 
   const age = profile ? getAgeDetail(profile.dob) : null
 
@@ -162,6 +185,41 @@ export default function Dashboard() {
           <div className="text-lg font-bold text-gray-900">{formatCurrency(thisMonthExpense)}</div>
           <div className="text-sm text-green-600">รับ {formatCurrency(thisMonthIncome)}</div>
         </Card>
+      </div>
+
+      {/* ── Quick Actions ── */}
+      <div className="px-4 pb-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {[
+            { icon: '💸', label: '+ รายจ่าย', color: 'bg-red-50 text-red-600', onClick: () => navigate('/finance') },
+            { icon: '⚖️', label: '+ น้ำหนัก', color: 'bg-sky-50 text-sky-600', onClick: () => setShowWeightInput(v => !v) },
+            { icon: '💬', label: 'AI Coach', color: 'bg-violet-50 text-violet-600', onClick: () => navigate('/coach') },
+            { icon: '📈', label: 'ลงทุน', color: 'bg-emerald-50 text-emerald-600', onClick: () => navigate('/investment') },
+            { icon: '🧾', label: 'ภาษี', color: 'bg-amber-50 text-amber-700', onClick: () => navigate('/tax') },
+          ].map(a => (
+            <button key={a.label} onClick={a.onClick}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-[13px] font-semibold active:scale-95 transition-transform ${a.color}`}>
+              <span>{a.icon}</span><span>{a.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Inline weight input */}
+        {showWeightInput && (
+          <div className="mt-2 flex gap-2 items-center bg-sky-50 rounded-2xl px-4 py-2.5">
+            <span className="text-sky-600">⚖️</span>
+            <input ref={weightRef} type="number" value={weightVal} onChange={e => setWeightVal(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && saveQuickWeight()}
+              placeholder="น้ำหนักวันนี้ (กก.)" step="0.1" min="20" max="300"
+              className="flex-1 bg-transparent text-[14px] font-semibold text-gray-800 outline-none placeholder:text-sky-300" />
+            <button onClick={saveQuickWeight} disabled={weightSaving || !weightVal}
+              className="bg-sky-500 text-white text-[12px] font-bold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-40">
+              {weightSaving ? '...' : 'บันทึก'}
+            </button>
+            <button onClick={() => { setShowWeightInput(false); setWeightVal('') }}
+              className="text-sky-400 text-lg">×</button>
+          </div>
+        )}
       </div>
 
       <Divider />

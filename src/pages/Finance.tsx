@@ -23,6 +23,27 @@ const CAT_ICONS: Record<string, string> = {
   โอนเข้า: '💸', โอนออก: '💸',
 }
 
+const CAT_COLORS: Record<string, string> = {
+  อาหาร: 'bg-orange-100 text-orange-700',
+  เดินทาง: 'bg-blue-100 text-blue-700',
+  ช้อปปิ้ง: 'bg-pink-100 text-pink-700',
+  สุขภาพ: 'bg-green-100 text-green-700',
+  ท่องเที่ยว: 'bg-cyan-100 text-cyan-700',
+  บ้าน: 'bg-amber-100 text-amber-700',
+  ประกัน: 'bg-violet-100 text-violet-700',
+  ลงทุน: 'bg-emerald-100 text-emerald-700',
+  ครอบครัว: 'bg-rose-100 text-rose-700',
+  Subscription: 'bg-purple-100 text-purple-700',
+  อื่นๆ: 'bg-gray-100 text-gray-500',
+  เงินเดือน: 'bg-emerald-100 text-emerald-700',
+  โบนัส: 'bg-yellow-100 text-yellow-700',
+  ปันผล: 'bg-lime-100 text-lime-700',
+  ดอกเบี้ย: 'bg-teal-100 text-teal-700',
+  Freelance: 'bg-indigo-100 text-indigo-700',
+  โอนเข้า: 'bg-sky-100 text-sky-700',
+  โอนออก: 'bg-slate-100 text-slate-600',
+}
+
 type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'emergency'
 
 export default function Finance() {
@@ -612,15 +633,38 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
           <div className="mx-4 bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
             {Object.entries(expenseByCategory)
               .sort((a, b) => b[1] - a[1])
-              .map(([cat, amt], idx, arr) => (
-                <div key={cat} className={`px-4 py-3 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[14px] font-medium text-gray-700">{CAT_ICONS[cat] ?? '📦'} {cat}</span>
-                    <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+              .map(([cat, amt], idx, arr) => {
+                const pct = expense > 0 ? (amt / expense) * 100 : 0
+                const chipColor = CAT_COLORS[cat] ?? 'bg-gray-100 text-gray-500'
+                // extract bg color for progress bar (convert chip class)
+                const barColor = chipColor.includes('orange') ? 'bg-orange-400'
+                  : chipColor.includes('blue') ? 'bg-blue-400'
+                  : chipColor.includes('pink') ? 'bg-pink-400'
+                  : chipColor.includes('green') ? 'bg-green-400'
+                  : chipColor.includes('cyan') ? 'bg-cyan-400'
+                  : chipColor.includes('amber') ? 'bg-amber-400'
+                  : chipColor.includes('violet') ? 'bg-violet-400'
+                  : chipColor.includes('emerald') ? 'bg-emerald-400'
+                  : chipColor.includes('rose') ? 'bg-rose-400'
+                  : chipColor.includes('purple') ? 'bg-purple-400'
+                  : 'bg-gray-400'
+                return (
+                  <div key={cat} className={`px-4 py-3 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${chipColor}`}>
+                          {CAT_ICONS[cat] ?? '📦'} {cat}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-gray-400">{pct.toFixed(0)}%</span>
+                        <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+                      </div>
+                    </div>
+                    <ProgressBar value={amt} max={expense} color={barColor} />
                   </div>
-                  <ProgressBar value={amt} max={expense} color="bg-red-400" />
-                </div>
-              ))}
+                )
+              })}
           </div>
         </>
       )}
@@ -1010,29 +1054,35 @@ function RecordsTab({ records, onEdit }: { records: FinanceRecord[]; onEdit: (r:
           <div className="text-4xl mb-3">📭</div>
           <div>ยังไม่มีรายการ</div>
         </div>
-      ) : records.map(r => (
-        <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-base ${r.type === 'income' ? 'bg-green-50' : 'bg-red-50'}`}>
-              {CAT_ICONS[r.category] ?? (r.type === 'income' ? '💚' : '🔴')}
+      ) : records.map(r => {
+        const catColor = CAT_COLORS[r.category] ?? (r.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')
+        return (
+          <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm flex items-center gap-3">
+            {/* Icon bubble — color by category */}
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${catColor}`}>
+              {CAT_ICONS[r.category] ?? (r.type === 'income' ? '💚' : '📦')}
             </div>
-            <div>
-              <div className="text-[14px] font-semibold text-gray-900">{r.description || r.category}</div>
-              <div className="text-[11px] text-gray-400">{r.date} · {r.category}</div>
+            {/* Description + category chip + date */}
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-semibold text-gray-900 truncate">{r.description || r.category}</div>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${catColor}`}>{r.category}</span>
+                <span className="text-[11px] text-gray-400">{r.date}</span>
+                {r.cardName && <span className="text-[10px] text-gray-400 bg-gray-50 px-1 rounded">{r.cardName}</span>}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={`text-[15px] font-bold ${r.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
-              {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount)}
-            </div>
-            <div className="flex gap-1">
+            {/* Amount + actions */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className={`text-[15px] font-bold ${r.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
+                {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount)}
+              </div>
               <button onClick={() => onEdit(r)} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-[11px] active:scale-95">✏️</button>
               <button onClick={() => { if (confirm('ลบรายการนี้?')) db.financeRecords.delete(r.id!) }}
                 className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-[11px] active:scale-95">🗑️</button>
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

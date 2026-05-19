@@ -8,7 +8,24 @@ import { fetchStockPrices } from '../api/stockPrice'
 import { BIOMARKERS, getCheckups } from './Health'
 import { calcThaiTax, suggestUnusedAllowances } from '../utils/thaiTax'
 
-interface Message { role: 'user' | 'assistant'; content: string; time: string }
+interface Message { role: 'user' | 'assistant'; content: string; time: string; followUps?: string[] }
+
+function getFollowUps(reply: string): string[] {
+  const r = reply.toLowerCase()
+  const picks: string[] = []
+  if (/หุ้น|พอร์ต|ลงทุน|ticker|ราคา/.test(r)) picks.push('แนะนำวิธี rebalance พอร์ตได้ไหม?')
+  if (/ภาษี|rmf|ssf|esg|ลดหย่อน/.test(r)) picks.push('ควรซื้อ RMF หรือ SSF ก่อนดีกว่ากัน?')
+  if (/ldl|hdl|ความดัน|น้ำตาล|อักเสบ|crp|สุขภาพ/.test(r)) picks.push('ควรปรับอาหารอย่างไรให้ดีขึ้น?')
+  if (/เกษียณ|pvd|4%|สินทรัพย์/.test(r)) picks.push('ถ้าเกษียณเร็วขึ้น 3 ปี ต้องออมเพิ่มเท่าไร?')
+  if (/ผ่อน|หนี้|คอนโด|สินเชื่อ/.test(r)) picks.push('โปะคอนโดก่อนหรือลงทุนก่อนดีกว่ากัน?')
+  if (/นอน|hrv|recovery|vo2|ออกกำลัง/.test(r)) picks.push('Zone 2 training คืออะไร และควรทำยังไง?')
+  if (/subscription|netflix|spotify|icloud/.test(r)) picks.push('มี subscription ไหนที่ไม่คุ้มและควรยกเลิก?')
+  if (picks.length < 2) {
+    picks.push('สรุปประเด็นสำคัญที่ควรทำก่อนสิ้นปีนี้')
+    picks.push('มีความเสี่ยงอะไรในพอร์ตฉันที่ควรระวัง?')
+  }
+  return picks.slice(0, 3)
+}
 
 const SMART_PROMPTS = [
   'พอร์ตหุ้นฉันตอนนี้กำไรขาดทุนหุ้นไหนมากที่สุด?',
@@ -424,6 +441,7 @@ ${checkups.map(c => `- ${c}`).join('\n')}
       setMessages(v => [...v, {
         role: 'assistant', content: reply,
         time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+        followUps: getFollowUps(reply),
       }])
 
       await db.chatMessages.bulkAdd([
@@ -480,15 +498,26 @@ ${checkups.map(c => `- ${c}`).join('\n')}
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex gap-2.5 mb-4 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+          <div key={i} className={`flex gap-2.5 mb-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 ${m.role === 'assistant' ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white' : 'bg-gray-200'}`}>
               {m.role === 'assistant' ? '🤖' : '😊'}
             </div>
-            <div className={`max-w-[80%] ${m.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
+            <div className={`max-w-[80%] ${m.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
               <div className={`px-4 py-3 rounded-2xl text-[14px] leading-relaxed whitespace-pre-wrap ${m.role === 'assistant' ? 'bg-white text-gray-800 shadow-sm rounded-tl-sm' : 'bg-indigo-600 text-white rounded-tr-sm'}`}>
                 {m.content}
               </div>
               {m.time && <div className="text-[10px] text-gray-400 px-1">{m.time}</div>}
+              {/* Follow-up suggestion chips — only on last assistant message */}
+              {m.role === 'assistant' && i === messages.length - 1 && m.followUps && m.followUps.length > 0 && !loading && (
+                <div className="flex flex-col gap-1 mt-1 w-full">
+                  {m.followUps.map(q => (
+                    <button key={q} onClick={() => sendMessage(q)}
+                      className="text-left text-[12px] text-indigo-700 bg-indigo-50 px-3 py-2 rounded-xl active:scale-[0.97] font-medium leading-snug">
+                      {q} →
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
