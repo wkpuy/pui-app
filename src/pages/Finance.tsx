@@ -130,7 +130,7 @@ function detectCat(description: string, type?: 'income' | 'expense'): string {
   // Wallet topup / financial transfers
   if (/ทรูมันนี่|TRUEMONEY|TRUE MONEY|RABBIT LINE|LINE PAY|SHOPEEPAY|WALLET/.test(t.toUpperCase())) return 'อื่นๆ'
   // Person-to-person transfer (Thai person prefix) → generic transfer
-  if (/^(น\.ส\.|นาย|นาง|MR\.|MS\.|MRS\.)/i.test(t.trim())) return type === 'income' ? 'โอนเข้า' : 'โอนออก'
+  if (/^(น\.ส\.|นาย|นาง|MR\.|MS\.|MRS\.)/i.test(t.trim())) return type === 'income' ? 'โอนเข้า' : 'อื่นๆ'
   // Default
   return type === 'income' ? 'โอนเข้า' : 'อื่นๆ'
 }
