@@ -133,6 +133,7 @@ export interface HealthDaily {
   caloriesBurned?: number
   vo2max?: number
   activeMinutes?: number
+  distanceKm?: number
   // WHOOP fields
   recoveryScore?: number
   hrv?: number

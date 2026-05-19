@@ -521,6 +521,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
                 <div className="text-center">
                   <div className="text-[20px] font-bold text-indigo-600">{latestPct}%</div>
                   <div className="text-[10px] text-gray-400">คืนล่าสุด</div>
+                  <div className="text-[9px] text-gray-400 mt-0.5">{latest.date.slice(5)}</div>
                 </div>
               </div>
               <div className="bg-gray-50 rounded-xl p-2.5 text-[11px] text-gray-500">
@@ -533,26 +534,29 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
         )
       })()}
 
-      {/* Calories & Steps Focus */}
+      {/* Calories & Steps & Distance Focus */}
       {(() => {
         const recent = (allDaily ?? []).slice(0, 30)
         const withCal = recent.filter((d: any) => d.caloriesBurned)
         const withSteps = recent.filter((d: any) => d.steps)
-        if (withCal.length === 0 && withSteps.length === 0) return null
+        const withDist = recent.filter((d: any) => d.distanceKm)
         const avgCal = withCal.length ? Math.round(withCal.reduce((s: number, d: any) => s + d.caloriesBurned, 0) / withCal.length) : null
         const avgSteps = withSteps.length ? Math.round(withSteps.reduce((s: number, d: any) => s + d.steps, 0) / withSteps.length) : null
-        const latestCal = withCal[0]?.caloriesBurned ?? null
-        const latestSteps = withSteps[0]?.steps ?? null
+        const avgDist = withDist.length ? Math.round(withDist.reduce((s: number, d: any) => s + d.distanceKm, 0) / withDist.length * 10) / 10 : null
+        const latestCalRec = withCal[0] ?? null
+        const latestStepsRec = withSteps[0] ?? null
+        const latestDistRec = withDist[0] ?? null
         const stepsOptimal = avgSteps !== null && avgSteps >= 8000
         const stepsGood = avgSteps !== null && avgSteps >= 6000
+        if (avgCal === null && avgSteps === null && avgDist === null) return null
         return (
           <div className="mx-4 mt-3">
             <div className="grid grid-cols-2 gap-3">
               {avgCal !== null && (
                 <Card>
                   <div className="text-[12px] font-bold text-gray-500 mb-1">🔥 Calories/วัน</div>
-                  <div className="text-[22px] font-bold text-orange-500">{latestCal ?? avgCal}</div>
-                  <div className="text-[10px] text-gray-400">ล่าสุด (cal)</div>
+                  <div className="text-[22px] font-bold text-orange-500">{latestCalRec?.caloriesBurned ?? avgCal}</div>
+                  <div className="text-[10px] text-gray-400">ล่าสุด (cal){latestCalRec ? ` · ${latestCalRec.date.slice(5)}` : ''}</div>
                   <div className="mt-2 pt-2 border-t border-gray-100">
                     <div className="text-[11px] text-gray-500">เฉลี่ย 30 วัน</div>
                     <div className="text-[14px] font-bold text-gray-700">{avgCal} cal</div>
@@ -563,15 +567,26 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
                 <Card>
                   <div className="text-[12px] font-bold text-gray-500 mb-1">👣 Steps/วัน</div>
                   <div className={`text-[22px] font-bold ${stepsOptimal ? 'text-green-600' : stepsGood ? 'text-amber-500' : 'text-red-500'}`}>
-                    {(latestSteps ?? avgSteps).toLocaleString()}
+                    {(latestStepsRec?.steps ?? avgSteps).toLocaleString()}
                   </div>
-                  <div className="text-[10px] text-gray-400">ล่าสุด (ก้าว)</div>
+                  <div className="text-[10px] text-gray-400">ล่าสุด (ก้าว){latestStepsRec ? ` · ${latestStepsRec.date.slice(5)}` : ''}</div>
                   <div className="mt-2 pt-2 border-t border-gray-100">
                     <div className="text-[11px] text-gray-500">เฉลี่ย 30 วัน</div>
                     <div className="text-[14px] font-bold text-gray-700">{avgSteps.toLocaleString()}</div>
                     <div className={`text-[10px] font-semibold mt-0.5 ${stepsOptimal ? 'text-green-600' : stepsGood ? 'text-amber-500' : 'text-red-500'}`}>
                       {stepsOptimal ? '✅ ≥8,000 ก้าว' : stepsGood ? '⚠️ ≥6,000 ก้าว' : '❌ <6,000 ก้าว'}
                     </div>
+                  </div>
+                </Card>
+              )}
+              {avgDist !== null && (
+                <Card>
+                  <div className="text-[12px] font-bold text-gray-500 mb-1">📍 ระยะทาง/วัน</div>
+                  <div className="text-[22px] font-bold text-sky-500">{latestDistRec?.distanceKm?.toFixed(1) ?? avgDist}</div>
+                  <div className="text-[10px] text-gray-400">ล่าสุด (กม.){latestDistRec ? ` · ${latestDistRec.date.slice(5)}` : ''}</div>
+                  <div className="mt-2 pt-2 border-t border-gray-100">
+                    <div className="text-[11px] text-gray-500">เฉลี่ย 30 วัน</div>
+                    <div className="text-[14px] font-bold text-gray-700">{avgDist} กม.</div>
                   </div>
                 </Card>
               )}
@@ -1342,6 +1357,7 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
     waterMl: editItem?.waterMl?.toString() ?? '',
     caloriesBurned: editItem?.caloriesBurned?.toString() ?? '',
     vo2max: editItem?.vo2max?.toString() ?? '',
+    distanceKm: editItem?.distanceKm?.toString() ?? '',
     source: editItem?.source ?? 'manual',
   })
 
@@ -1357,6 +1373,7 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
       waterMl: form.waterMl ? parseInt(form.waterMl) : undefined,
       caloriesBurned: form.caloriesBurned ? parseInt(form.caloriesBurned) : undefined,
       vo2max: form.vo2max ? parseFloat(form.vo2max) : undefined,
+      distanceKm: form.distanceKm ? parseFloat(form.distanceKm) : undefined,
       source: form.source,
     }
     if (editItem?.id) await db.healthDaily.update(editItem.id, data)
@@ -1384,6 +1401,7 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
             ['น้ำ (mL)', 'waterMl', '2000'],
             ['เผาผลาญ (cal)', 'caloriesBurned', '400'],
             ['VO₂max', 'vo2max', '42'],
+            ['ระยะทาง (กม.)', 'distanceKm', '5'],
           ].map(([label, key, ph]) => (
             <div key={key}>
               <div className="text-[12px] font-semibold text-gray-500 mb-1">{label}</div>
