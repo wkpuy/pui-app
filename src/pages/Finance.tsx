@@ -208,10 +208,31 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     }
   }
 
+  async function recategorize() {
+    // Re-run detectCat on existing bank-sourced records with generic categories
+    const all = await db.financeRecords.toArray()
+    const targets = all.filter(r =>
+      (r.source === 'kasikorn' || r.source === 'bangkok_bank') &&
+      ['โอนเข้า', 'โอนออก', 'อื่นๆ'].includes(r.category) &&
+      r.description
+    )
+    let updated = 0
+    for (const r of targets) {
+      const newCat = detectCat(r.description ?? '', r.type)
+      if (newCat !== r.category) {
+        await db.financeRecords.update(r.id!, { category: newCat })
+        updated++
+      }
+    }
+    return updated
+  }
+
   async function syncEmails() {
     if (!tokens?.accessToken) return
     setEmailsLoading(true)
     try {
+      // Re-categorize existing records first (so old records get the new auto-detect)
+      const recat = await recategorize()
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
       const sinceDate = month.replace('-', '/') + '/01'
       const messages = await fetchGmailBankMessages(tokens.accessToken, sinceDate)
@@ -246,14 +267,15 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       }
       setSyncDebug(debugFailed)
       const fromsNote = unparsedFroms.length > 0 ? ` · จาก: ${[...new Set(unparsedFroms)].slice(0, 2).join(', ')}` : ''
+      const recatNote = recat > 0 ? ` · จัดหมวดใหม่ ${recat}` : ''
       const detail = `(พบ ${messages.length} อีเมล${unparsedFroms.length > 0 ? ` · อ่านยอดไม่ได้ ${unparsedFroms.length}` : ''}${skipped > 0 ? ` · ซ้ำ ${skipped}` : ''}${fromsNote})`
       setToast({
         text: added > 0
-          ? `เพิ่ม ${added} รายการ ${detail}`
+          ? `เพิ่ม ${added} รายการ${recatNote} ${detail}`
           : messages.length === 0
-            ? 'ไม่พบอีเมลธนาคารใน 48 ชม. ที่ผ่านมา'
-            : `ไม่มีรายการใหม่ ${detail}`,
-        type: added > 0 ? 'success' : 'error',
+            ? `ไม่พบอีเมลธนาคารใน 48 ชม. ที่ผ่านมา${recatNote}`
+            : `ไม่มีรายการใหม่${recatNote} ${detail}`,
+        type: added > 0 || recat > 0 ? 'success' : 'error',
       })
     } catch (e: any) {
       setToast({ text: e.message ?? 'ไม่สามารถอ่าน Gmail ได้', type: 'error' })
