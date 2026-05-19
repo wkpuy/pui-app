@@ -44,7 +44,7 @@ const CAT_COLORS: Record<string, string> = {
   โอนออก: 'bg-slate-100 text-slate-600',
 }
 
-type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'emergency' | 'budget'
+type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'budget'
 
 // ── Budget config (localStorage) ──────────────────────────────────────────────
 interface BudgetConfig {
@@ -76,7 +76,6 @@ export default function Finance() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
 
   const records = useLiveQuery(() => db.financeRecords.orderBy('date').reverse().toArray())
-  const emergency = useLiveQuery(() => db.emergencyFund.toArray().then(r => r[0]))
   const installments = useLiveQuery(() => db.installments.orderBy('startDate').reverse().toArray())
 
   const monthRecords = records?.filter(r => r.date.startsWith(month)) ?? []
@@ -108,7 +107,7 @@ export default function Finance() {
 
       {/* Tabs */}
       <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน'], ['emergency', 'ฉุกเฉิน']] as [Tab, string][]).map(([t, l]) => (
+        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
             {l}
@@ -136,7 +135,6 @@ export default function Finance() {
         {tab === 'installments' && <InstallmentsTab installments={installments ?? []} />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'budget' && <BudgetTab month={month} />}
-        {tab === 'emergency' && <EmergencyFundTab emergency={emergency} monthlyExpense={expense} />}
       </div>
 
       {showForm && (
@@ -1643,60 +1641,6 @@ function SubscriptionForm({ editItem, onClose }: { editItem: Subscription | null
   )
 }
 
-function EmergencyFundTab({ emergency, monthlyExpense }: { emergency: any; monthlyExpense: number }) {
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    targetMonths: emergency?.targetMonths?.toString() ?? '6',
-    currentAmount: emergency?.currentAmount?.toString() ?? '',
-  })
-
-  const target = (emergency?.targetMonths ?? 6) * monthlyExpense
-  const current = emergency?.currentAmount ?? 0
-  const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0
-
-  async function save() {
-    const data = { targetMonths: parseInt(form.targetMonths), currentAmount: parseFloat(form.currentAmount), updatedAt: new Date().toISOString() }
-    if (emergency?.id) await db.emergencyFund.update(emergency.id, data)
-    else await db.emergencyFund.add(data)
-    setShowForm(false)
-  }
-
-  return (
-    <div className="px-4 pt-3">
-      <Card>
-        <CardTitle>เงินสำรองฉุกเฉิน</CardTitle>
-        <div className="flex justify-between items-end mb-3 mt-1">
-          <div>
-            <div className="text-2xl font-bold text-gray-900">{formatCurrency(current)}</div>
-            <div className="text-xs text-gray-400 mt-0.5">เป้าหมาย {emergency?.targetMonths ?? 6} เดือน = {formatCurrency(target)}</div>
-          </div>
-          <div className="text-2xl font-bold text-indigo-600">{pct.toFixed(0)}%</div>
-        </div>
-        <ProgressBar value={pct} max={100} color={pct >= 100 ? 'bg-green-500' : pct >= 60 ? 'bg-amber-500' : 'bg-red-500'} />
-        <div className="text-xs text-gray-400 mt-1.5">
-          {pct >= 100 ? '✅ ครบแล้ว' : `ยังขาด ${formatCurrency(target - current)}`}
-        </div>
-        <button onClick={() => setShowForm(v => !v)} className="mt-3 text-indigo-600 text-sm font-semibold">
-          แก้ไขข้อมูล
-        </button>
-        {showForm && (
-          <div className="mt-3 flex flex-col gap-2">
-            <input type="number" placeholder="เป้าหมาย (เดือน)" value={form.targetMonths}
-              onChange={e => setForm(v => ({ ...v, targetMonths: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
-            <input type="number" placeholder="มีอยู่ตอนนี้ (บาท)" value={form.currentAmount}
-              onChange={e => setForm(v => ({ ...v, currentAmount: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
-            <button onClick={save} className="bg-indigo-600 text-white font-bold py-2.5 rounded-xl text-sm active:scale-95">
-              บันทึก
-            </button>
-          </div>
-        )}
-      </Card>
-      <div className="h-4" />
-    </div>
-  )
-}
 
 function FinanceForm({ editRecord, onClose }: { editRecord: FinanceRecord | null; onClose: () => void }) {
   const [form, setForm] = useState({
