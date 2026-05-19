@@ -501,6 +501,13 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
           )
 
+          // Compute startDate = month when installment 1 was first charged
+          // billingMonth = postDate (posting date is within the billing cycle month)
+          // installment 1 month = billingMonth - (current - 1)
+          const billingBase = new Date(((txn.postDate || txn.transDate || fallbackDate).slice(0, 8)) + '01')
+          billingBase.setMonth(billingBase.getMonth() - (current - 1))
+          const instStartDate = billingBase.toISOString().slice(0, 10)
+
           if (!existing) {
             await db.installments.add({
               name: cleanName,
@@ -508,14 +515,14 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
               monthlyAmount: Math.abs(txn.amount),
               totalInstallments: total,
               paidInstallments: current,
-              startDate: txn.transDate || fallbackDate,
+              startDate: instStartDate,
               category: txn.category || 'ช้อปปิ้ง',
               source: 'credit_card',
               cardName: bankName,
             })
             instAdded++
           } else if (existing.paidInstallments < current) {
-            await db.installments.update(existing.id!, { paidInstallments: current })
+            await db.installments.update(existing.id!, { paidInstallments: current, startDate: instStartDate })
             instUpdated++
           }
         }
