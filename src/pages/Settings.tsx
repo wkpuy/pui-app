@@ -111,11 +111,28 @@ export default function Settings() {
     const tokens = loadWhoopTokens()
     if (!tokens) { setSyncStatus('❌ ยังไม่ได้เชื่อมต่อ WHOOP'); return }
     setWhoopSyncing(true)
-    setSyncStatus('กำลัง sync WHOOP...')
+    setWhoopResult(null)
     try {
-      const valid = await getValidTokens(tokens)
-      saveWhoopTokens(valid)
-      const records = await fetchWhoopData(valid, 90)
+      setWhoopResult({ text: '⏳ [1/3] ตรวจสอบ token...', ok: true })
+      let valid: typeof tokens
+      try {
+        valid = await getValidTokens(tokens)
+        saveWhoopTokens(valid)
+      } catch (e: any) {
+        setWhoopResult({ text: `❌ Token ไม่ถูกต้อง: ${e.message} — กรุณา Disconnect แล้ว Connect ใหม่`, ok: false })
+        return
+      }
+
+      setWhoopResult({ text: '⏳ [2/3] กำลังดึงข้อมูลจาก WHOOP...', ok: true })
+      let records: Awaited<ReturnType<typeof fetchWhoopData>>
+      try {
+        records = await fetchWhoopData(valid, 90)
+      } catch (e: any) {
+        setWhoopResult({ text: `❌ เชื่อมต่อ WHOOP API ล้มเหลว: ${e.message}`, ok: false })
+        return
+      }
+
+      setWhoopResult({ text: `⏳ [3/3] บันทึก ${records.length} วัน...`, ok: true })
       let added = 0, updated = 0
       for (const r of records) {
         const existing = await db.healthDaily.where('date').equals(r.date).first()
@@ -145,14 +162,12 @@ export default function Settings() {
       }
       await db.syncLog.add({ source: 'whoop', lastSyncAt: new Date().toISOString(), status: 'success', notes: `+${added} ใหม่, ${updated} อัปเดต` })
       if (records.length === 0) {
-        setWhoopResult({ text: '⚠️ ไม่มีข้อมูลจาก API ลอง sync ใหม่อีกครั้ง', ok: false })
+        setWhoopResult({ text: '⚠️ ไม่มีข้อมูลจาก WHOOP API', ok: false })
       } else if (added === 0 && updated === 0) {
         setWhoopResult({ text: `ℹ️ ข้อมูลเป็นปัจจุบันแล้ว (พบ ${records.length} วัน)`, ok: true })
       } else {
         setWhoopResult({ text: `✅ +${added} วันใหม่${updated > 0 ? ` อัปเดต ${updated}` : ''} จาก ${records.length} วัน`, ok: true })
       }
-    } catch (e: any) {
-      setWhoopResult({ text: `❌ sync ล้มเหลว: ${e.message}`, ok: false })
     } finally {
       setWhoopSyncing(false)
     }
