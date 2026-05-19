@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { fetchCalendarEvents, parseDividendEvents } from '../api/google'
@@ -31,6 +32,7 @@ function formatThaiDate(dateStr: string) {
 }
 
 export default function Calendar() {
+  const navigate = useNavigate()
   const [events, setEvents] = useState<CalEvent[]>([])
   const [dividendEvents, setDividendEvents] = useState<ParsedDividendEvent[]>([])
   const [loading, setLoading] = useState(false)
@@ -225,13 +227,12 @@ export default function Calendar() {
               <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
                 <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Session หมดอายุ</div>
                 <div className="text-[13px] text-amber-700 mb-3">Token Google หมดอายุแล้ว (มีอายุแค่ 1 ชั่วโมง) กรุณาเชื่อมต่อใหม่ใน Settings</div>
-                <a
-                  href="#settings"
-                  onClick={() => window.location.hash = ''}
+                <button
+                  onClick={() => navigate('/settings')}
                   className="inline-block bg-amber-600 text-white text-[13px] font-bold px-4 py-2 rounded-xl active:scale-95"
                 >
                   ไปที่ Settings →
-                </a>
+                </button>
               </div>
             )}
 
