@@ -99,6 +99,15 @@ async function fetchAllPages(path: string, accessToken: string, startStr: string
   return all
 }
 
+export async function debugWhoopRaw(tokens: WhoopTokens): Promise<{ cycle: any; recovery: any; sleep: any }> {
+  const [cycle, recovery, sleep] = await Promise.all([
+    proxyApi('/cycle?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
+    proxyApi('/recovery?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
+    proxyApi('/activity/sleep?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
+  ])
+  return { cycle, recovery, sleep }
+}
+
 export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<WhoopDailyData[]> {
   const start = new Date()
   start.setDate(start.getDate() - days)

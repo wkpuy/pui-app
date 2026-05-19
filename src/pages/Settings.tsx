@@ -5,7 +5,7 @@ import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
 import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
-import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, fetchWhoopData, getValidTokens, saveWhoopTokens } from '../api/whoop'
+import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, fetchWhoopData, getValidTokens, saveWhoopTokens, debugWhoopRaw } from '../api/whoop'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -22,6 +22,7 @@ export default function Settings() {
   const [whoopConnected, setWhoopConnected] = useState(false)
   const [whoopSyncing, setWhoopSyncing] = useState(false)
   const [whoopResult, setWhoopResult] = useState<{ text: string; ok: boolean } | null>(null)
+  const [whoopDebug, setWhoopDebug] = useState<string>('')
 
   useEffect(() => {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
@@ -105,6 +106,20 @@ export default function Settings() {
     clearWhoopTokens()
     setWhoopConnected(false)
     setSyncStatus('ยกเลิกการเชื่อมต่อ WHOOP แล้ว')
+  }, [])
+
+  const runWhoopDebug = useCallback(async () => {
+    const tokens = loadWhoopTokens()
+    if (!tokens) { setWhoopDebug('❌ ยังไม่ได้เชื่อมต่อ WHOOP'); return }
+    setWhoopDebug('⏳ กำลังเรียก WHOOP API...')
+    try {
+      const valid = await getValidTokens(tokens)
+      saveWhoopTokens(valid)
+      const raw = await debugWhoopRaw(valid)
+      setWhoopDebug(JSON.stringify(raw, null, 2))
+    } catch (e: any) {
+      setWhoopDebug(`❌ Error: ${e.message}`)
+    }
   }, [])
 
   const syncWhoop = useCallback(async () => {
@@ -406,6 +421,29 @@ export default function Settings() {
                 {whoopResult && (
                   <div className={`text-[12px] font-medium px-3 py-2 rounded-xl mb-2 ${whoopResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                     {whoopResult.text}
+                  </div>
+                )}
+                <button
+                  onClick={runWhoopDebug}
+                  className="w-full bg-amber-50 text-amber-700 font-semibold py-2 rounded-xl text-[12px] border border-amber-200 mb-2"
+                >
+                  🔍 Debug — ดู raw response จาก WHOOP API
+                </button>
+                {whoopDebug && (
+                  <div className="mb-2">
+                    <textarea
+                      readOnly
+                      value={whoopDebug}
+                      className="w-full text-[10px] font-mono bg-gray-900 text-green-300 p-2 rounded-xl"
+                      rows={12}
+                      onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                    />
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(whoopDebug); setWhoopDebug(whoopDebug + '\n\n[คัดลอกแล้ว ✓]') }}
+                      className="w-full bg-gray-800 text-white font-semibold py-1.5 rounded-lg text-[11px] mt-1"
+                    >
+                      📋 Copy ทั้งหมด
+                    </button>
                   </div>
                 )}
                 <button onClick={disconnectWhoop} className="text-red-500 text-[12px] font-medium w-full text-center">
