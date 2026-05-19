@@ -5,6 +5,7 @@ import { db } from '../db'
 import type { SalaryRecord } from '../db'
 import { formatCurrency } from '../utils/calculations'
 import { Card, SectionLabel } from '../components/Card'
+import Button, { IconButton } from '../components/Button'
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -117,9 +118,8 @@ export default function Salary() {
                           <div className="text-[11px] text-gray-400">/เดือน</div>
                         </div>
                         <div className="flex gap-1">
-                          <button onClick={() => openEdit(r)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-[13px] active:scale-95">✏️</button>
-                          <button onClick={() => { if (confirm('ลบรายการนี้?')) db.salaryRecords.delete(r.id!) }}
-                            className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-[13px] active:scale-95">🗑️</button>
+                          <IconButton onClick={() => openEdit(r)}>✏️</IconButton>
+                          <IconButton tone="destructive" onClick={() => { if (confirm('ลบรายการเงินเดือนนี้?\nไม่สามารถกู้คืนได้')) db.salaryRecords.delete(r.id!) }}>🗑️</IconButton>
                         </div>
                       </div>
                     </div>
@@ -320,9 +320,9 @@ function SalaryForm({ editItem, prevSalary, onClose }: { editItem: SalaryRecord 
         <input placeholder="หมายเหตุ" value={form.notes}
           onChange={e => setForm(v => ({ ...v, notes: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import { db } from '../db'
 import type { CondoMortgage } from '../db'
 import { formatCurrency } from '../utils/calculations'
 import { Card, CardTitle, SectionLabel, ProgressBar } from '../components/Card'
+import Button from '../components/Button'
 
 interface AmortRow {
   month: number
@@ -386,9 +387,9 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
             onChange={e => setForm(v => ({ ...v, monthlyExtra: e.target.value }))}
             className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
         </div>
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   )

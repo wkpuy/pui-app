@@ -7,22 +7,29 @@ interface Props {
 }
 
 export function Card({ children, className = '', onClick }: Props) {
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className={`bg-white rounded-2xl p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] active:scale-[0.98] text-left w-full ${className}`}
+      >
+        {children}
+      </button>
+    )
+  }
   return (
-    <div
-      onClick={onClick}
-      className={`bg-white rounded-2xl p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] ${onClick ? 'active:scale-[0.98] cursor-pointer' : ''} ${className}`}
-    >
+    <div className={`bg-white rounded-2xl p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] ${className}`}>
       {children}
     </div>
   )
 }
 
 export function CardTitle({ children }: { children: ReactNode }) {
-  return <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{children}</div>
+  return <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1">{children}</div>
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
-  return <div className="px-5 pt-5 pb-1.5 text-[13px] font-semibold text-gray-600">{children}</div>
+  return <div className="px-5 pt-5 pb-1.5 text-[13px] font-semibold text-gray-700">{children}</div>
 }
 
 export function Divider() {
@@ -77,7 +84,8 @@ export function Toast({ message, type = 'success', onDone }: {
 export function ProgressBar({ value, max, color = 'bg-indigo-500' }: { value: number; max: number; color?: string }) {
   const pct = Math.min((value / max) * 100, 100)
   return (
-    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+    <div className="h-2 bg-gray-100 rounded-full overflow-hidden"
+      role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
       <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
     </div>
   )

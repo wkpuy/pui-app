@@ -151,28 +151,28 @@ export default function Dashboard() {
       <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 px-5 pt-[calc(env(safe-area-inset-top)+16px)] pb-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-sm opacity-75">{greeting} 👋</div>
+            <div className="text-sm opacity-90">{greeting} 👋</div>
             <div className="text-[28px] font-bold leading-tight">{profile.nickname}</div>
           </div>
-          <button onClick={() => navigate('/settings')} className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl">
+          <button onClick={() => navigate('/settings')} aria-label="ตั้งค่า" className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center text-xl">
             ⚙️
           </button>
         </div>
 
         {/* Age real-time */}
         <div className="bg-white/15 rounded-2xl p-3 mb-4">
-          <div className="text-xs opacity-75 mb-1">อายุปัจจุบัน</div>
+          <div className="text-xs opacity-90 mb-1">อายุปัจจุบัน</div>
           <div className="text-xl font-bold">
             {age?.years} ปี {age?.months} เดือน {age?.days} วัน
           </div>
-          <div className="text-xs opacity-60 mt-0.5">เกิด {new Date(profile.dob).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          <div className="text-xs opacity-80 mt-0.5">เกิด {new Date(profile.dob).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
         </div>
 
         {/* Life Score */}
         <div className="bg-white/15 rounded-2xl p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs opacity-75">Life Score</div>
-            <div className="text-xs opacity-60">คะแนนชีวิตรวม</div>
+            <div className="text-xs opacity-90">Life Score</div>
+            <div className="text-xs opacity-80">คะแนนชีวิตรวม</div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-3xl font-bold">{lifeScore}</div>
@@ -183,7 +183,7 @@ export default function Dashboard() {
                   style={{ width: `${lifeScore}%` }}
                 />
               </div>
-              <div className="text-xs opacity-60 mt-1">
+              <div className="text-xs opacity-80 mt-1">
                 {lifeScore >= 80 ? 'ยอดเยี่ยม 🎉' : lifeScore >= 60 ? 'ดี 👍' : 'ต้องปรับปรุง 💪'}
               </div>
             </div>
@@ -206,26 +206,26 @@ export default function Dashboard() {
       {/* Summary cards */}
       <div className="px-4 py-3 grid grid-cols-2 gap-3">
         <Card onClick={() => navigate('/investment')} className="!p-3">
-          <div className="text-[11px] font-semibold text-gray-400 mb-1">พอร์ตลงทุน</div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">พอร์ตลงทุน</div>
           <div className="text-lg font-bold text-gray-900">{formatCurrency(totalCurrent)}</div>
           <div className={`text-sm font-semibold ${gainPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
             {gainPct >= 0 ? '+' : ''}{gainPct.toFixed(1)}%
           </div>
         </Card>
         <Card onClick={() => navigate('/health')} className="!p-3">
-          <div className="text-[11px] font-semibold text-gray-400 mb-1">สุขภาพ</div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">สุขภาพ</div>
           <div className="text-lg font-bold text-gray-900">{healthScore}/100</div>
           <div className={`text-sm font-semibold ${healthScore >= 80 ? 'text-green-600' : healthScore >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
             {healthScore >= 80 ? 'ดี' : healthScore >= 60 ? 'ปานกลาง' : 'ต้องดูแล'}
           </div>
         </Card>
         <Card onClick={() => navigate('/retirement')} className="!p-3">
-          <div className="text-[11px] font-semibold text-gray-400 mb-1">แผนเกษียณ</div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">แผนเกษียณ</div>
           <div className="text-lg font-bold text-gray-900">{retirementPct.toFixed(0)}%</div>
           <div className="text-sm text-gray-500">ของเป้าหมาย</div>
         </Card>
         <Card onClick={() => navigate('/finance')} className="!p-3">
-          <div className="text-[11px] font-semibold text-gray-400 mb-1">เดือนนี้</div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">เดือนนี้</div>
           <div className="text-lg font-bold text-gray-900">{formatCurrency(thisMonthExpense)}</div>
           <div className="text-sm text-green-600">รับ {formatCurrency(thisMonthIncome)}</div>
         </Card>
@@ -251,8 +251,9 @@ export default function Dashboard() {
         {/* Inline weight input */}
         {showWeightInput && (
           <div className="mt-2 flex gap-2 items-center bg-sky-50 rounded-2xl px-4 py-2.5">
-            <span className="text-sky-600">⚖️</span>
-            <input ref={weightRef} type="number" value={weightVal} onChange={e => setWeightVal(e.target.value)}
+            <span aria-hidden="true" className="text-sky-600">⚖️</span>
+            <label htmlFor="weight-input" className="sr-only">น้ำหนัก (กก.)</label>
+            <input id="weight-input" ref={weightRef} type="number" value={weightVal} onChange={e => setWeightVal(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && saveQuickWeight()}
               placeholder="น้ำหนักวันนี้ (กก.)" step="0.1" min="20" max="300"
               className="flex-1 bg-transparent text-[14px] font-semibold text-gray-800 outline-none placeholder:text-sky-300" />
@@ -260,8 +261,8 @@ export default function Dashboard() {
               className="bg-sky-500 text-white text-[12px] font-bold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-40">
               {weightSaving ? '...' : 'บันทึก'}
             </button>
-            <button onClick={() => { setShowWeightInput(false); setWeightVal('') }}
-              className="text-sky-400 text-lg">×</button>
+            <button onClick={() => { setShowWeightInput(false); setWeightVal('') }} aria-label="ปิด"
+              className="w-11 h-11 flex items-center justify-center text-sky-400 text-lg">×</button>
           </div>
         )}
       </div>

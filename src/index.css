@@ -2,6 +2,7 @@
 @import "tailwindcss";
 
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; border-radius: 4px; }
 
 html {
   overflow-x: hidden;

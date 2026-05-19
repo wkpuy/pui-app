@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components/Card'
+import Button, { IconButton, CloseButton } from '../components/Button'
 import { formatCurrency } from '../utils/calculations'
 import type { FinanceRecord, Installment, Subscription } from '../db/types'
 import { listBillFiles } from '../api/google'
@@ -106,13 +107,16 @@ export default function Finance() {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
-            {l}
-          </button>
-        ))}
+      <div className="relative bg-white border-b border-gray-100">
+        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
+          {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -185,6 +189,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
   income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string; installments: Installment[]
 }) {
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
+  const [showDataSources, setShowDataSources] = useState(false)
   const [bills, setBills] = useState<BillFile[]>([])
   const [billsLoading, setBillsLoading] = useState(false)
   const [billsError, setBillsError] = useState<string | null>(null)
@@ -244,7 +249,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       const result = await listBillFiles(tokens.accessToken)
       setBills(result)
       setBillsSynced(true)
-      setToast({ text: `โหลดสำเร็จ ${result.length} ไฟล์`, type: 'success' })
+      setToast({ text: `โหลด PDF สำเร็จ ${result.length} ไฟล์`, type: 'success' })
     } catch (e: any) {
       const msg = e.message ?? 'ไม่สามารถโหลดไฟล์จาก Drive ได้'
       setBillsError(msg)
@@ -324,7 +329,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         type: added > 0 || recat > 0 ? 'success' : 'error',
       })
     } catch (e: any) {
-      setToast({ text: e.message ?? 'ไม่สามารถอ่าน Gmail ได้', type: 'error' })
+      setToast({ text: 'อ่าน Gmail ไม่ได้ — ตรวจสอบการเชื่อมต่อ', type: 'error' })
     } finally {
       setEmailsLoading(false)
     }
@@ -347,7 +352,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         selected: new Array(txnsWithCat.length).fill(true),
       })
     } catch (e: any) {
-      setToast({ text: e.message ?? 'ไม่สามารถอ่าน PDF ได้', type: 'error' })
+      setToast({ text: 'อ่าน PDF ไม่ได้ — ลองเลือกไฟล์อีกครั้ง', type: 'error' })
     } finally {
       setImporting(null)
     }
@@ -409,7 +414,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       })
     } catch (e: any) {
       console.error('Drive PDF import failed at step:', step, e)
-      setToast({ text: `[${step}] ${e?.message ?? String(e)}`, type: 'error' })
+      setToast({ text: 'นำเข้าข้อมูลไม่สำเร็จ — ลองใหม่อีกครั้ง', type: 'error' })
     } finally {
       setManualParsing(false)
     }
@@ -438,8 +443,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       })
     } catch (e: any) {
       console.error('PDF import failed at step:', step, e)
-      const errMsg = e?.message ?? String(e)
-      setToast({ text: `[${step}] ${errMsg}`, type: 'error' })
+      setToast({ text: 'นำเข้า PDF ไม่สำเร็จ — ลองใหม่อีกครั้ง', type: 'error' })
     } finally {
       setManualParsing(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -538,7 +542,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       })
     } catch (e: any) {
       console.error('saveImport error:', e)
-      setToast({ text: `บันทึกไม่สำเร็จ: ${e?.message ?? e}`, type: 'error' })
+      setToast({ text: 'บันทึกไม่สำเร็จ — ลองใหม่อีกครั้ง', type: 'error' })
     }
   }
 
@@ -701,6 +705,22 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         </>
       )}
 
+      {/* ── Data Sources (collapsible) ── */}
+      <div className="mx-4 mb-4">
+        <button
+          onClick={() => setShowDataSources(v => !v)}
+          className="w-full flex items-center justify-between bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 active:scale-[0.98] transition-transform"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base">🔗</span>
+            <span className="text-[13px] font-semibold text-gray-700">แหล่งข้อมูล (Sync / นำเข้า)</span>
+          </div>
+          <span className={`text-gray-400 transition-transform duration-200 ${showDataSources ? 'rotate-180' : ''}`}>▾</span>
+        </button>
+      </div>
+
+      {showDataSources && (
+        <>
       {/* Gmail sync section */}
       <div className="mx-4 mb-4">
         <Card className="!bg-blue-50">
@@ -714,7 +734,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
               disabled={emailsLoading}
               className="bg-blue-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full disabled:opacity-60"
             >
-              {emailsLoading ? '⏳ กำลังโหลด...' : '📧 Sync ธนาคาร'}
+              {emailsLoading ? '⏳ กำลัง Sync...' : '📧 Sync ธนาคาร'}
             </button>
           )}
         </Card>
@@ -756,7 +776,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
               disabled={billsLoading}
               className="bg-purple-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full disabled:opacity-60"
             >
-              {billsLoading ? '⏳ กำลังโหลด...' : '🔄 Sync บิลบัตรเครดิต'}
+              {billsLoading ? '⏳ กำลังโหลด Bill...' : '🔄 Sync บิลบัตรเครดิต'}
             </button>
           )}
 
@@ -905,16 +925,18 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
           <div className="text-[11px] text-orange-400 mt-1.5">รองรับ KTC · KBANK · กรุงศรี · UOB</div>
         </Card>
       </div>
+        </>
+      )}
 
       {/* Drive Browser Modal */}
       {showDriveBrowser && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end">
           <div className="w-full bg-white rounded-t-3xl max-h-[88vh] flex flex-col">
             {/* Header */}
             <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-[16px] font-bold text-gray-900">☁️ เลือกไฟล์จาก Google Drive</div>
-                <button onClick={() => setShowDriveBrowser(false)} className="text-gray-400 text-xl w-8 h-8 flex items-center justify-center">✕</button>
+                <CloseButton onClick={() => setShowDriveBrowser(false)} />
               </div>
               {/* Bank reminder */}
               <div className="flex items-center gap-2 bg-orange-50 rounded-xl px-3 py-2 mb-3">
@@ -992,7 +1014,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
 
       {/* PDF Import Modal */}
       {importState && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end">
           <div className="w-full bg-white rounded-t-3xl max-h-[88vh] flex flex-col">
             <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <div>
@@ -1001,7 +1023,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
                   {importState.file.bankName} · {importState.file.dateStr ? `${importState.file.dateStr.slice(6, 8)}/${importState.file.dateStr.slice(4, 6)}/${importState.file.dateStr.slice(0, 4)}` : importState.file.name}
                 </div>
               </div>
-              <button onClick={() => setImportState(null)} className="text-gray-400 text-xl w-8 h-8 flex items-center justify-center">✕</button>
+              <CloseButton onClick={() => setImportState(null)} />
             </div>
 
             {importState.txns.length === 0 ? (
@@ -1084,7 +1106,7 @@ function RecordsTab({ records, onEdit }: { records: FinanceRecord[]; onEdit: (r:
       {records.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <div className="text-4xl mb-3">📭</div>
-          <div>ยังไม่มีรายการ</div>
+          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการในเดือนนี้</div>
         </div>
       ) : records.map(r => {
         const catColor = CAT_COLORS[r.category] ?? (r.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')
@@ -1108,9 +1130,8 @@ function RecordsTab({ records, onEdit }: { records: FinanceRecord[]; onEdit: (r:
               <div className={`text-[15px] font-bold ${r.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
                 {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount)}
               </div>
-              <button onClick={() => onEdit(r)} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-[11px] active:scale-95">✏️</button>
-              <button onClick={() => { if (confirm('ลบรายการนี้?')) db.financeRecords.delete(r.id!) }}
-                className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-[11px] active:scale-95">🗑️</button>
+              <IconButton onClick={() => onEdit(r)}>✏️</IconButton>
+              <IconButton tone="destructive" onClick={() => { if (confirm('ลบรายการนี้?\nไม่สามารถกู้คืนได้')) db.financeRecords.delete(r.id!) }}>🗑️</IconButton>
             </div>
           </div>
         )
@@ -1267,7 +1288,8 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       {installments.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <div className="text-4xl mb-3">💳</div>
-          <div>ยังไม่มีรายการผ่อน</div>
+          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการผ่อนชำระ</div>
+          <div className="text-[13px]">กดปุ่ม ＋ เพื่อเพิ่มรายการ</div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -1292,10 +1314,8 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
                     <div className="text-[12px] text-gray-400">{inst.category} · เริ่ม {inst.startDate.slice(0, 7)}</div>
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => { setEditItem(inst); setShowForm(true) }}
-                      className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-[11px] active:scale-95">✏️</button>
-                    <button onClick={() => { if (confirm('ลบ?')) db.installments.delete(inst.id!) }}
-                      className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-[11px] active:scale-95">🗑️</button>
+                    <IconButton onClick={() => { setEditItem(inst); setShowForm(true) }}>✏️</IconButton>
+                    <IconButton tone="destructive" onClick={() => { if (confirm('ลบรายการผ่อนนี้?\nไม่สามารถกู้คืนได้')) db.installments.delete(inst.id!) }}>🗑️</IconButton>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -1402,9 +1422,9 @@ function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; 
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full">
           {CATEGORIES_EXPENSE.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1493,7 +1513,11 @@ function SubscriptionsTab() {
       </button>
 
       {(subs ?? []).length === 0 ? (
-        <div className="text-center text-gray-400 py-12 text-[14px]">ยังไม่มี subscription</div>
+        <div className="text-center text-gray-400 py-12 text-[14px]">
+          <div className="text-4xl mb-3">📱</div>
+          <div className="font-medium text-gray-500 mb-1">ยังไม่มี Subscription</div>
+          <div className="text-[13px]">กดปุ่ม ＋ เพื่อเพิ่มรายการ</div>
+        </div>
       ) : (
         <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
           {(subs ?? []).map((s, idx, arr) => {
@@ -1564,7 +1588,7 @@ function SubscriptionForm({ editItem, onClose }: { editItem: Subscription | null
     onClose()
   }
   async function remove() {
-    if (editItem?.id && confirm('ลบ subscription นี้?')) {
+    if (editItem?.id && confirm('ลบ Subscription นี้?\nไม่สามารถกู้คืนได้')) {
       await db.subscriptions.delete(editItem.id)
       onClose()
     }
@@ -1702,9 +1726,9 @@ function FinanceForm({ editRecord, onClose }: { editRecord: FinanceRecord | null
         <input placeholder="รายละเอียด (ไม่บังคับ)" value={form.description}
           onChange={e => setForm(v => ({ ...v, description: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           {editRecord ? 'บันทึกการแก้ไข' : 'บันทึก'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1785,7 +1809,7 @@ function BudgetTab({ month }: { month: string }) {
       <Card>
         <div className="flex items-center justify-between mb-2">
           <CardTitle>หักจากเงินเดือน (อัตโนมัติ)</CardTitle>
-          {!salary && <span className="text-[10px] text-amber-600">⚠️ ยังไม่มีข้อมูลเงินเดือน</span>}
+          {!salary && <span className="text-[10px] text-amber-600">⚠️ ยังไม่มีข้อมูลเงินเดือน — ไปเพิ่มที่หน้าเงินเดือน</span>}
         </div>
         <BudRow label="เงินเดือน" amount={baseSalary} income />
         <BudRow label="ประกันสังคม" amount={SS} />
@@ -1955,9 +1979,9 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
         {labeledField('familyBudget', '👨‍👩‍👧 ครอบครัว')}
         {labeledField('otherBudget', '📦 อื่นๆ')}
 
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 w-full mt-2">
+        <Button onClick={save}>
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   )

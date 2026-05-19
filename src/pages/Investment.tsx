@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader'
 import { formatCurrency, formatPct } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
 import { Toast } from '../components/Card'
+import Button, { IconButton } from '../components/Button'
 
 const TYPE_LABELS: Record<InvestmentType, string> = {
   thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
@@ -88,7 +89,7 @@ export default function Investment() {
         }
       }
     } catch {
-      if (!silent) setToastMsg({ text: 'ไม่สามารถโหลดราคาได้', type: 'error' })
+      if (!silent) setToastMsg({ text: 'โหลดราคาไม่ได้ — ลอง Sync อีกครั้ง', type: 'error' })
     } finally {
       if (!silent) setSyncing(false)
     }
@@ -141,18 +142,21 @@ export default function Investment() {
         </div>
 
         {/* Tabs */}
-        <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-          {(['all', 'thai_stock', 'foreign_stock', 'fund', 'insurance', 'savings'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${
-                tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'
-              }`}
-            >
-              {t === 'all' ? 'ทั้งหมด' : TYPE_LABELS[t as InvestmentType]}
-            </button>
-          ))}
+        <div className="relative bg-white border-b border-gray-100">
+          <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
+            {(['all', 'thai_stock', 'foreign_stock', 'fund', 'insurance', 'savings'] as Tab[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${
+                  tab === t ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-400'
+                }`}
+              >
+                {t === 'all' ? 'ทั้งหมด' : TYPE_LABELS[t as InvestmentType]}
+              </button>
+            ))}
+          </div>
+          <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
         </div>
 
         {/* Sort controls */}
@@ -173,7 +177,7 @@ export default function Investment() {
           <div className="text-center py-16 text-gray-400 px-8">
             <div className="text-5xl mb-3">{tab === 'all' ? '📭' : TYPE_ICONS[tab as InvestmentType] ?? '📭'}</div>
             <div className="font-semibold text-gray-600 mb-1">
-              {tab === 'all' ? 'ยังไม่มีข้อมูลการลงทุน' : `ยังไม่มี${TYPE_LABELS[tab as InvestmentType]}`}
+              {tab === 'all' ? 'ยังไม่มีการลงทุน' : `ยังไม่มี${TYPE_LABELS[tab as InvestmentType]}`}
             </div>
             <div className="text-[13px]">กด ＋ เพิ่ม เพื่อเพิ่มพอร์ตแรก</div>
           </div>
@@ -244,16 +248,8 @@ export default function Investment() {
                     </button>
                     {/* Edit / Delete actions */}
                     <div className="flex gap-1 pr-3">
-                      <button
-                        onClick={() => { setEditItem(inv); setShowForm(true) }}
-                        className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 active:scale-95"
-                      >✏️</button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`ลบ "${inv.name}" ออกใช่ไหม?`)) deleteInvestment(inv.id!)
-                        }}
-                        className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-400 active:scale-95"
-                      >🗑️</button>
+                      <IconButton onClick={() => { setEditItem(inv); setShowForm(true) }}>✏️</IconButton>
+                      <IconButton tone="destructive" onClick={() => { if (confirm(`ลบ "${inv.name}" ออกจากพอร์ต?\nข้อมูลและประวัติปันผลจะหายถาวร`)) deleteInvestment(inv.id!) }}>🗑️</IconButton>
                     </div>
                   </div>
 
@@ -443,7 +439,7 @@ function DividendPanel({ investmentId, dividends, costBasis, costPerUnit, shares
       )}
 
       {sorted.length === 0 ? (
-        <div className="text-[12px] text-indigo-400 text-center py-2">ยังไม่มีข้อมูลปันผล</div>
+        <div className="text-[12px] text-indigo-400 text-center py-2">ยังไม่มีประวัติปันผล</div>
       ) : (
         <>
           <div className="grid grid-cols-5 gap-1 text-[10px] font-bold text-indigo-400 mb-1 px-1">
@@ -461,7 +457,7 @@ function DividendPanel({ investmentId, dividends, costBasis, costPerUnit, shares
               </div>
               <div className="flex gap-1 justify-end">
                 <button onClick={() => startEdit(d)} className="text-[10px] text-indigo-500">✏️</button>
-                <button onClick={() => { if (confirm('ลบปันผลนี้?')) db.dividends.delete(d.id!) }} className="text-[10px] text-red-400">🗑️</button>
+                <button onClick={() => { if (confirm('ลบรายการปันผลนี้?\nไม่สามารถกู้คืนได้')) db.dividends.delete(d.id!) }} className="text-[10px] text-red-400">🗑️</button>
               </div>
             </div>
           ))}
@@ -625,7 +621,7 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
         {isInsurance && (
           <>
             <div className="text-[12px] font-bold text-indigo-600 -mb-1">ข้อมูลประกัน</div>
-            <input placeholder="บริษัทประกัน" value={form.insCompany}
+            <input placeholder="เช่น เมืองไทยประกันชีวิต" value={form.insCompany}
               onChange={e => setForm(v => ({ ...v, insCompany: e.target.value }))}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
             <div className="grid grid-cols-2 gap-2">
@@ -763,9 +759,9 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
           onChange={e => setForm(v => ({ ...v, notes: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
 
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           {editItem ? 'บันทึกการแก้ไข' : 'บันทึก'}
-        </button>
+        </Button>
       </div>
     </div>
   )

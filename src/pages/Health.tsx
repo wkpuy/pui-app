@@ -4,6 +4,7 @@ import { db } from '../db'
 import type { HealthRecord, HealthDaily, Medication } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, StatusTag } from '../components/Card'
+import Button, { IconButton, CloseButton } from '../components/Button'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
 import { loadWhoopTokens } from '../api/whoop'
 import { syncWhoopAndSave } from '../api/whoopSync'
@@ -170,13 +171,16 @@ export default function Health() {
         }}
       />
 
-      <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม'], ['meds', '💊 ยา/วิตามิน']] as [MainTab, string][]).map(([t, l]) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
-            {l}
-          </button>
-        ))}
+      <div className="relative bg-white border-b border-gray-100">
+        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
+          {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม'], ['meds', '💊 ยา/วิตามิน']] as [MainTab, string][]).map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-400'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -241,7 +245,7 @@ function WeightTracker({ allDaily, profile }: { allDaily: HealthDaily[]; profile
   async function saveQuick() {
     const w = parseFloat(quickInput)
     if (!w || w < 20 || w > 300) {
-      setToast('น้ำหนักไม่ถูกต้อง')
+      setToast('กรุณาใส่น้ำหนักที่ถูกต้อง (20–300 กก.)')
       setTimeout(() => setToast(null), 2000)
       return
     }
@@ -412,7 +416,17 @@ function Sparkline({ points, color = '#6366f1', height = 48 }: { points: number[
   )
 }
 
+const CHECKUP_STORAGE_KEY = 'health_checkup_done_v1'
+function loadDoneCheckups(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(CHECKUP_STORAGE_KEY) ?? '[]')) }
+  catch { return new Set() }
+}
+function saveDoneCheckups(s: Set<string>) {
+  localStorage.setItem(CHECKUP_STORAGE_KEY, JSON.stringify([...s]))
+}
+
 function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, checkups, profile, allDaily, allRecords, onSyncWhoop, whoopSyncing, whoopMsg, whoopConnected }: any) {
+  const [doneCheckups, setDoneCheckups] = useState<Set<string>>(loadDoneCheckups)
   const whoop = latestWhoopDaily ?? latestDaily
   const bmi = profile && latestDaily?.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : null
 
@@ -819,12 +833,35 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
           <div className="mx-4 mb-4">
             <Card className="!bg-amber-50">
               <div className="flex flex-col gap-1.5">
-                {checkups.map((c: string) => (
-                  <div key={c} className="flex items-center gap-2 text-[13px] text-amber-800">
-                    <span>📋</span><span>{c}</span>
-                  </div>
-                ))}
+                {checkups.map((c: string) => {
+                  const done = doneCheckups.has(c)
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => {
+                        const next = new Set(doneCheckups)
+                        done ? next.delete(c) : next.add(c)
+                        setDoneCheckups(next)
+                        saveDoneCheckups(next)
+                      }}
+                      className={`flex items-center gap-2.5 text-[13px] text-left active:scale-[0.98] transition-all rounded-xl px-1 py-0.5 ${done ? 'opacity-50' : ''}`}
+                    >
+                      <span className={`w-5 h-5 flex-shrink-0 rounded-full border-2 flex items-center justify-center transition-colors ${done ? 'bg-amber-500 border-amber-500' : 'border-amber-400 bg-white'}`}>
+                        {done && <span className="text-white text-[11px] font-bold">✓</span>}
+                      </span>
+                      <span className={`${done ? 'line-through text-amber-600' : 'text-amber-800'}`}>{c}</span>
+                    </button>
+                  )
+                })}
               </div>
+              {doneCheckups.size > 0 && (
+                <button
+                  onClick={() => { setDoneCheckups(new Set()); saveDoneCheckups(new Set()) }}
+                  className="mt-3 text-[11px] text-amber-500 font-semibold"
+                >
+                  รีเซ็ตทั้งหมด
+                </button>
+              )}
             </Card>
           </div>
         </>
@@ -1150,9 +1187,8 @@ function RecordsTab({ records, onEdit }: { records: HealthRecord[]; onEdit: (r: 
           <div className="flex items-center justify-between mb-2">
             <div className="text-[13px] font-semibold text-indigo-600">{r.date}</div>
             <div className="flex gap-1">
-              <button onClick={() => onEdit(r)} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-[11px] active:scale-95">✏️</button>
-              <button onClick={() => { if (confirm('ลบผลตรวจนี้?')) db.healthRecords.delete(r.id!) }}
-                className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-[11px] active:scale-95">🗑️</button>
+              <IconButton onClick={() => onEdit(r)}>✏️</IconButton>
+              <IconButton tone="destructive" onClick={() => { if (confirm('ลบผลตรวจนี้?\nไม่สามารถกู้คืนได้')) db.healthRecords.delete(r.id!) }}>🗑️</IconButton>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-y-1.5">
@@ -1188,9 +1224,8 @@ function DailyTab({ daily, onEdit }: { daily: HealthDaily[]; onEdit: (d: HealthD
             <div className="text-[13px] font-semibold text-indigo-600">{d.date}</div>
             <div className="flex items-center gap-2">
               {d.source && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{d.source}</span>}
-              <button onClick={() => onEdit(d)} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-[11px] active:scale-95">✏️</button>
-              <button onClick={() => { if (confirm('ลบ?')) db.healthDaily.delete(d.id!) }}
-                className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-[11px] active:scale-95">🗑️</button>
+              <IconButton onClick={() => onEdit(d)}>✏️</IconButton>
+              <IconButton tone="destructive" onClick={() => { if (confirm('ลบข้อมูลรายวันนี้?\nไม่สามารถกู้คืนได้')) db.healthDaily.delete(d.id!) }}>🗑️</IconButton>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -1385,9 +1420,9 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
           </div>
         )}
 
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           {editItem ? 'บันทึกการแก้ไข' : 'บันทึก'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1466,9 +1501,9 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
             <option value="fitbit">Fitbit</option>
           </select>
         </div>
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           {editItem ? 'บันทึกการแก้ไข' : 'บันทึก'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1493,7 +1528,7 @@ function MedsTab({ onEdit }: { onEdit: (m: Medication) => void }) {
   }
 
   async function deleteMed(id: number) {
-    if (!confirm('ลบรายการนี้?')) return
+    if (!confirm('ลบรายการยา/อาหารเสริมนี้?\nไม่สามารถกู้คืนได้')) return
     await db.medications.delete(id)
     await db.medicationLogs.where('medicationId').equals(id).delete()
   }
@@ -1651,12 +1686,12 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
       <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 max-h-[92vh] overflow-y-auto space-y-4"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-bold text-gray-900">{editItem ? 'แก้ไขรายการ' : 'เพิ่มยา/วิตามิน'}</h2>
-          <button onClick={onClose} className="text-gray-400 text-2xl w-8 h-8 flex items-center justify-center">×</button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Type */}
@@ -1755,10 +1790,9 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
             className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full resize-none" />
         </div>
 
-        <button onClick={saveMed} disabled={saving}
-          className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 w-full disabled:opacity-40">
+        <Button onClick={saveMed} disabled={saving}>
           {saving ? 'กำลังบันทึก...' : editItem ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
-        </button>
+        </Button>
       </div>
     </div>
   )

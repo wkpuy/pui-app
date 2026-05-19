@@ -125,7 +125,7 @@ export default function AICoach() {
       setPriceSyncStatus(`✅ ราคาอัพเดท ${updated}/${tickerInvs.length} รายการ`)
       setTimeout(() => setPriceSyncStatus(null), 3000)
     } catch {
-      setPriceSyncStatus('⚠️ อัพเดทราคาไม่สำเร็จ')
+      setPriceSyncStatus('⚠️ อัพเดทราคาไม่สำเร็จ — กด Sync อีกครั้ง')
       setTimeout(() => setPriceSyncStatus(null), 3000)
     }
   }
@@ -508,7 +508,7 @@ ${checkups.map(c => `- ${c}`).join('\n')}
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3" aria-live="polite" aria-atomic="false">
         {messages.length === 0 && (
           <div className="text-center py-8">
             <div className="text-5xl mb-3">🤖</div>
@@ -583,7 +583,7 @@ ${checkups.map(c => `- ${c}`).join('\n')}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-          placeholder="พิมพ์คำถาม..."
+          placeholder="ถามอะไรก็ได้เกี่ยวกับสุขภาพและการเงิน..."
           rows={1}
           className="flex-1 border border-gray-200 rounded-2xl px-4 py-2.5 text-[14px] resize-none outline-none focus:border-indigo-400"
           style={{ maxHeight: 100 }}

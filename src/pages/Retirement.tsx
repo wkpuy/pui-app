@@ -4,6 +4,7 @@ import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, ProgressBar } from '../components/Card'
 import { formatCurrency, calcRetirementTarget, calcMonthlySaving, getAgeDetail } from '../utils/calculations'
+import Button from '../components/Button'
 
 export default function Retirement() {
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
@@ -452,9 +453,9 @@ function RetirementForm({ plan, onClose }: { plan: any; onClose: () => void }) {
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
           </div>
         ))}
-        <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
+        <Button onClick={save}>
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   )

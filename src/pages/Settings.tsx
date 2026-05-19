@@ -183,7 +183,7 @@ export default function Settings() {
 
   async function restoreFromDrive() {
     if (!googleTokens?.accessToken || !driveBackup) return
-    if (!confirm('กู้คืนข้อมูลจาก Drive จะแทนที่ข้อมูลที่มีอยู่ทั้งหมด ยืนยัน?')) return
+    if (!confirm('กู้คืนข้อมูลจาก Drive จะแทนที่ข้อมูลทั้งหมดในแอพ\nดำเนินการต่อ?')) return
     setSyncStatus('กำลังกู้คืนข้อมูลจาก Drive...')
     try {
       const data: any = await downloadDriveBackup(googleTokens.accessToken, driveBackup.id)
@@ -226,7 +226,7 @@ export default function Settings() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <PageHeader title="ตั้งค่า" gradient="from-slate-500 to-gray-700" />
+      <PageHeader title="ตั้งค่า" gradient="from-slate-500 to-gray-700" back />
       <div className="flex-1 overflow-y-auto">
 
         {syncStatus && (
@@ -276,7 +276,7 @@ export default function Settings() {
                   <option value="female">หญิง</option>
                 </select>
               </div>
-              <button onClick={saveProfile} className="bg-indigo-600 text-white font-bold py-3 rounded-xl text-sm active:scale-95">
+              <button onClick={saveProfile} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
                 บันทึกข้อมูล
               </button>
             </div>
@@ -463,7 +463,7 @@ export default function Settings() {
                       {count}
                     </span>
                     {canClear && count > 0 && label.includes('แชท') && (
-                      <button onClick={async () => { if (confirm('ล้างประวัติแชท?')) { await db.chatMessages.clear(); loadStats() } }}
+                      <button onClick={async () => { if (confirm('ล้างประวัติแชททั้งหมด?\nAI จะลืมบทสนทนาก่อนหน้า')) { await db.chatMessages.clear(); loadStats() } }}
                         className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded active:scale-95">ล้าง</button>
                     )}
                     {canClear && count > 50 && label.includes('log') && (
