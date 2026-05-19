@@ -2,7 +2,6 @@ const CLIENT_ID = '2a0f2623-a20c-4b15-985a-e89f7c1f37c4'
 const REDIRECT_URI = 'https://wkpuy.github.io/pui-app/'
 const AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth'
 const PROXY_URL = 'https://whoop-proxy.kpnmtu.workers.dev/'
-const API_BASE = 'https://api.prod.whoop.com/developer/v1'
 
 const SCOPES = 'read:recovery read:cycles read:sleep read:workout read:profile read:body_measurement offline'
 
@@ -25,20 +24,28 @@ export function getWhoopAuthUrl(): string {
   return `${AUTH_URL}?${params}`
 }
 
-export async function exchangeCode(code: string): Promise<WhoopTokens> {
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-  })
+async function proxyPost(body: Record<string, string>): Promise<any> {
   const res = await fetch(PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`)
-  const data = await res.json()
+  if (!res.ok) throw new Error(`Proxy error: ${res.status}`)
+  return res.json()
+}
+
+async function proxyApi(path: string, accessToken: string): Promise<any> {
+  const res = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'api', path, accessToken }),
+  })
+  if (!res.ok) throw new Error(`WHOOP API error: ${res.status} ${path}`)
+  return res.json()
+}
+
+export async function exchangeCode(code: string): Promise<WhoopTokens> {
+  const data = await proxyPost({ grant_type: 'authorization_code', code, client_id: CLIENT_ID, redirect_uri: REDIRECT_URI })
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
@@ -47,31 +54,12 @@ export async function exchangeCode(code: string): Promise<WhoopTokens> {
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<WhoopTokens> {
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-    client_id: CLIENT_ID,
-  })
-  const res = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  })
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`)
-  const data = await res.json()
+  const data = await proxyPost({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: CLIENT_ID })
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? refreshToken,
     expiresAt: Date.now() + data.expires_in * 1000,
   }
-}
-
-async function apiGet(path: string, tokens: WhoopTokens): Promise<any> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${tokens.accessToken}` },
-  })
-  if (!res.ok) throw new Error(`WHOOP API error: ${res.status} ${path}`)
-  return res.json()
 }
 
 export interface WhoopDailyData {
@@ -105,13 +93,12 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
   const limit = Math.min(days + 5, 100)
 
   const [recoveries, sleeps, cycles] = await Promise.all([
-    apiGet(`/recovery/?start=${startStr}&limit=${limit}`, tokens),
-    apiGet(`/activity/sleep/?start=${startStr}&limit=${limit}`, tokens),
-    apiGet(`/cycle/?start=${startStr}&limit=${limit}`, tokens),
+    proxyApi(`/recovery/?start=${startStr}&limit=${limit}`, tokens.accessToken),
+    proxyApi(`/activity/sleep/?start=${startStr}&limit=${limit}`, tokens.accessToken),
+    proxyApi(`/cycle/?start=${startStr}&limit=${limit}`, tokens.accessToken),
   ])
 
   const map = new Map<string, WhoopDailyData>()
-
   const ensure = (date: string) => {
     if (!map.has(date)) map.set(date, { date })
     return map.get(date)!
