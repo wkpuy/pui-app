@@ -43,6 +43,7 @@ export default function AICoach() {
   const salaryRecords = useLiveQuery(() => db.salaryRecords.orderBy('year').toArray())
   const condo = useLiveQuery(() => db.condoMortgage.toArray().then(r => r[0]))
   const emergencyFund = useLiveQuery(() => db.emergencyFund.toArray().then(r => r[0]))
+  const subscriptions = useLiveQuery(() => db.subscriptions.toArray())
 
   useEffect(() => {
     if (settings?.geminiApiKey) initGemini(settings.geminiApiKey)
@@ -221,6 +222,16 @@ export default function AICoach() {
     const totalAssets = portfolioVal + otherAssets + pvdToDate
     const gap = target - totalAssets
 
+    // ── Subscriptions ───────────────────────────────────────
+    const activeSubs = (subscriptions ?? []).filter(s => s.active)
+    const subMonthly = activeSubs.reduce((s, x) =>
+      s + (x.frequency === 'monthly' ? x.amount : x.frequency === 'quarterly' ? x.amount / 3 : x.amount / 12), 0)
+    const subAnnual = activeSubs.reduce((s, x) =>
+      s + (x.frequency === 'monthly' ? x.amount * 12 : x.frequency === 'quarterly' ? x.amount * 4 : x.amount), 0)
+    const subLines = activeSubs.slice(0, 10).map(s =>
+      `  - ${s.name}: ${num(s.amount)} ${s.frequency === 'monthly' ? 'บาท/เดือน' : s.frequency === 'quarterly' ? 'บาท/3 เดือน' : 'บาท/ปี'}${s.paymentMethod ? ` (${s.paymentMethod})` : ''}`
+    ).join('\n')
+
     // ── Condo ───────────────────────────────────────────────
     const condoStr = condo ? `${condo.propertyName}: กู้ ${num(condo.loanAmount)}, ดอกเบี้ย ${condo.interestRate}%, ผ่อน ${condo.loanTermYears} ปี + จ่ายเพิ่ม ${num(condo.monthlyExtra)}/เดือน` : 'ยังไม่ได้บันทึก'
 
@@ -269,6 +280,10 @@ ${retirement ? `- เป้าอายุเกษียณ ${retirement.target
 - ใช้/เดือนหลังเกษียณ: ${num(retirement.monthlyExpenseAtRetirement)} บาท → ต้องมี ~${num(target)} (4% Rule)
 - มีอยู่: พอร์ต ${num(portfolioVal)} + PVD ${num(pvdToDate)} + อื่นๆ ${num(otherAssets)} = ${num(totalAssets)} บาท
 - ${gap > 0 ? `ยังขาด ${num(gap)} บาท` : `บรรลุเป้าแล้ว เกินอีก ${num(-gap)} บาท`}` : '  (ยังไม่ได้ตั้งแผนเกษียณ)'}
+
+═══ Subscriptions (${activeSubs.length} ใช้งาน) ═══
+- รวม: ${num(subMonthly, 0)} บาท/เดือน หรือ ${num(subAnnual, 0)} บาท/ปี
+${subLines || '  (ยังไม่มี subscription)'}
 
 ═══ สินเชื่อบ้าน ═══
 - ${condoStr}

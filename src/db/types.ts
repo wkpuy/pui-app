@@ -215,6 +215,18 @@ export interface EmergencyFund {
   updatedAt: string
 }
 
+export interface Subscription {
+  id?: number
+  name: string              // e.g. "Netflix", "iCloud 200GB"
+  amount: number            // ค่าบริการแต่ละรอบ
+  frequency: 'monthly' | 'quarterly' | 'yearly'
+  nextRenewalDate: string   // YYYY-MM-DD
+  category: 'streaming' | 'cloud' | 'software' | 'fitness' | 'other'
+  paymentMethod?: string    // 'KTC', 'KBANK', 'bank_account', etc.
+  active: boolean
+  notes?: string
+}
+
 export interface ChatMessage {
   id?: number
   role: 'user' | 'assistant'

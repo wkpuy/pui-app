@@ -5,7 +5,7 @@ import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components/Card'
 import { formatCurrency } from '../utils/calculations'
-import type { FinanceRecord, Installment } from '../db/types'
+import type { FinanceRecord, Installment, Subscription } from '../db/types'
 import { listBillFiles } from '../api/google'
 import type { BillFile, DriveFile } from '../api/google'
 import type { CreditCardTransaction } from '../api/pdfParser'
@@ -23,7 +23,7 @@ const CAT_ICONS: Record<string, string> = {
   โอนเข้า: '💸', โอนออก: '💸',
 }
 
-type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'emergency'
+type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'emergency'
 
 export default function Finance() {
   const navigate = useNavigate()
@@ -63,7 +63,7 @@ export default function Finance() {
 
       {/* Tabs */}
       <div className="flex bg-white border-b border-gray-100 overflow-x-auto">
-        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['emergency', 'ฉุกเฉิน']] as [Tab, string][]).map(([t, l]) => (
+        {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อนชำระ'], ['subscriptions', 'Subs'], ['emergency', 'ฉุกเฉิน']] as [Tab, string][]).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}>
             {l}
@@ -89,6 +89,7 @@ export default function Finance() {
         )}
         {tab === 'yearly' && <YearlyTab records={records ?? []} />}
         {tab === 'installments' && <InstallmentsTab installments={installments ?? []} />}
+        {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'emergency' && <EmergencyFundTab emergency={emergency} monthlyExpense={expense} />}
       </div>
 
@@ -1320,6 +1321,244 @@ function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; 
         <button onClick={save} className="bg-indigo-600 text-white font-bold py-3.5 rounded-2xl text-[15px] active:scale-95 mt-2">
           บันทึก
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Subscriptions ───────────────────────────────────────────────────────────
+const SUB_CATEGORIES: Record<string, { label: string; icon: string; color: string }> = {
+  streaming: { label: 'Streaming', icon: '🎬', color: 'bg-red-100 text-red-700' },
+  cloud:     { label: 'Cloud',     icon: '☁️', color: 'bg-blue-100 text-blue-700' },
+  software:  { label: 'Software',  icon: '💻', color: 'bg-purple-100 text-purple-700' },
+  fitness:   { label: 'Fitness',   icon: '💪', color: 'bg-green-100 text-green-700' },
+  other:     { label: 'อื่นๆ',      icon: '📦', color: 'bg-gray-100 text-gray-700' },
+}
+
+function SubscriptionsTab() {
+  const subs = useLiveQuery(() => db.subscriptions.orderBy('nextRenewalDate').toArray())
+  const [showForm, setShowForm] = useState(false)
+  const [editItem, setEditItem] = useState<Subscription | null>(null)
+
+  const active = (subs ?? []).filter(s => s.active)
+  // Normalize to monthly equivalent
+  function monthlyEq(s: Subscription) {
+    return s.frequency === 'monthly' ? s.amount
+      : s.frequency === 'quarterly' ? s.amount / 3
+      : s.amount / 12
+  }
+  function annualEq(s: Subscription) {
+    return s.frequency === 'monthly' ? s.amount * 12
+      : s.frequency === 'quarterly' ? s.amount * 4
+      : s.amount
+  }
+  const totalMonthly = active.reduce((s, x) => s + monthlyEq(x), 0)
+  const totalAnnual = active.reduce((s, x) => s + annualEq(x), 0)
+  const totalQuiet = (subs ?? []).filter(s => !s.active).length
+
+  const today = new Date()
+  function daysUntil(dateStr: string) {
+    const d = new Date(dateStr)
+    return Math.ceil((d.getTime() - today.getTime()) / (1000 * 3600 * 24))
+  }
+
+  // Group by category for breakdown
+  const byCat = active.reduce((acc, s) => {
+    const m = monthlyEq(s)
+    acc[s.category] = (acc[s.category] || 0) + m
+    return acc
+  }, {} as Record<string, number>)
+
+  return (
+    <div className="px-4 pt-3 pb-4">
+      <div className="flex gap-2 mb-3">
+        <Card className="!p-3 flex-1 text-center">
+          <div className="text-[11px] text-gray-400 font-semibold">รวม/เดือน</div>
+          <div className="text-[16px] font-bold text-gray-900">{formatCurrency(totalMonthly, 0)}</div>
+        </Card>
+        <Card className="!p-3 flex-1 text-center">
+          <div className="text-[11px] text-gray-400 font-semibold">รวม/ปี</div>
+          <div className="text-[16px] font-bold text-purple-600">{formatCurrency(totalAnnual, 0)}</div>
+        </Card>
+        <Card className="!p-3 flex-1 text-center">
+          <div className="text-[11px] text-gray-400 font-semibold">ใช้งาน</div>
+          <div className="text-[16px] font-bold text-gray-900">{active.length}{totalQuiet > 0 && <span className="text-[11px] text-gray-400"> +{totalQuiet}</span>}</div>
+        </Card>
+      </div>
+
+      {Object.keys(byCat).length > 0 && (
+        <Card className="mb-3">
+          <SectionLabel>หมวดหมู่ (ค่าเฉลี่ย/เดือน)</SectionLabel>
+          {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => {
+            const meta = SUB_CATEGORIES[cat] ?? SUB_CATEGORIES.other
+            return (
+              <div key={cat} className="flex items-center justify-between py-1.5 text-[13px]">
+                <span className="text-gray-700">{meta.icon} {meta.label}</span>
+                <span className="font-semibold text-gray-900">{formatCurrency(amt, 0)}</span>
+              </div>
+            )
+          })}
+        </Card>
+      )}
+
+      <button
+        onClick={() => { setEditItem(null); setShowForm(true) }}
+        className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl active:scale-95 w-full mb-3"
+      >
+        ＋ เพิ่ม Subscription
+      </button>
+
+      {(subs ?? []).length === 0 ? (
+        <div className="text-center text-gray-400 py-12 text-[14px]">ยังไม่มี subscription</div>
+      ) : (
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+          {(subs ?? []).map((s, idx, arr) => {
+            const meta = SUB_CATEGORIES[s.category] ?? SUB_CATEGORIES.other
+            const days = daysUntil(s.nextRenewalDate)
+            const dayLabel = days < 0 ? `เลย ${-days} วัน` : days === 0 ? 'วันนี้!' : days === 1 ? 'พรุ่งนี้' : `อีก ${days} วัน`
+            const urgent = days <= 3 && days >= 0 && s.active
+            const overdue = days < 0 && s.active
+            return (
+              <button key={s.id}
+                onClick={() => { setEditItem(s); setShowForm(true) }}
+                className={`w-full px-4 py-3 text-left active:bg-gray-50 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''} ${!s.active ? 'opacity-50' : ''}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-lg flex-shrink-0">{meta.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 text-[14px] truncate">{s.name}</div>
+                      <div className="text-[11px] text-gray-400">
+                        {s.frequency === 'monthly' ? 'รายเดือน' : s.frequency === 'quarterly' ? 'ราย 3 เดือน' : 'รายปี'}
+                        {s.paymentMethod && ` · ${s.paymentMethod}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right ml-2">
+                    <div className="text-[14px] font-bold text-gray-900">{formatCurrency(s.amount, 0)}</div>
+                    <div className={`text-[10px] font-semibold ${overdue ? 'text-red-500' : urgent ? 'text-amber-600' : 'text-gray-400'}`}>
+                      {s.active ? dayLabel : 'ยกเลิก'}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {showForm && <SubscriptionForm editItem={editItem} onClose={() => { setShowForm(false); setEditItem(null) }} />}
+    </div>
+  )
+}
+
+function SubscriptionForm({ editItem, onClose }: { editItem: Subscription | null; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: editItem?.name ?? '',
+    amount: editItem?.amount?.toString() ?? '',
+    frequency: editItem?.frequency ?? 'monthly' as Subscription['frequency'],
+    nextRenewalDate: editItem?.nextRenewalDate ?? new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10),
+    category: editItem?.category ?? 'streaming' as Subscription['category'],
+    paymentMethod: editItem?.paymentMethod ?? '',
+    active: editItem?.active ?? true,
+    notes: editItem?.notes ?? '',
+  })
+
+  async function save() {
+    const data: Omit<Subscription, 'id'> = {
+      name: form.name.trim(),
+      amount: parseFloat(form.amount) || 0,
+      frequency: form.frequency,
+      nextRenewalDate: form.nextRenewalDate,
+      category: form.category,
+      paymentMethod: form.paymentMethod || undefined,
+      active: form.active,
+      notes: form.notes || undefined,
+    }
+    if (!data.name || data.amount <= 0) return
+    if (editItem?.id) await db.subscriptions.update(editItem.id, data)
+    else await db.subscriptions.add(data)
+    onClose()
+  }
+  async function remove() {
+    if (editItem?.id && confirm('ลบ subscription นี้?')) {
+      await db.subscriptions.delete(editItem.id)
+      onClose()
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-bold">{editItem ? 'แก้ไข' : 'เพิ่ม'} Subscription</h3>
+          <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ชื่อ</div>
+          <input placeholder="Netflix, iCloud, Spotify..." value={form.name}
+            onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">ค่าบริการ</div>
+            <input type="number" placeholder="299" value={form.amount}
+              onChange={e => setForm(v => ({ ...v, amount: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">รอบจ่าย</div>
+            <select value={form.frequency}
+              onChange={e => setForm(v => ({ ...v, frequency: e.target.value as Subscription['frequency'] }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full bg-white">
+              <option value="monthly">รายเดือน</option>
+              <option value="quarterly">ราย 3 เดือน</option>
+              <option value="yearly">รายปี</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ต่ออายุครั้งถัดไป</div>
+          <input type="date" value={form.nextRenewalDate}
+            onChange={e => setForm(v => ({ ...v, nextRenewalDate: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">หมวดหมู่</div>
+          <select value={form.category}
+            onChange={e => setForm(v => ({ ...v, category: e.target.value as Subscription['category'] }))}
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full bg-white">
+            {Object.entries(SUB_CATEGORIES).map(([k, v]) => (
+              <option key={k} value={k}>{v.icon} {v.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">วิธีจ่าย (ไม่บังคับ)</div>
+          <input placeholder="KTC, KBANK, ตัดบัญชี..." value={form.paymentMethod}
+            onChange={e => setForm(v => ({ ...v, paymentMethod: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        <label className="flex items-center gap-2 text-[13px] text-gray-700">
+          <input type="checkbox" checked={form.active} onChange={e => setForm(v => ({ ...v, active: e.target.checked }))} />
+          ยังใช้งานอยู่
+        </label>
+
+        <div className="flex gap-2 mt-2">
+          {editItem && (
+            <button onClick={remove} className="bg-red-50 text-red-600 font-semibold px-4 py-3 rounded-xl text-sm">ลบ</button>
+          )}
+          <button onClick={save}
+            className="flex-1 bg-indigo-600 text-white font-semibold py-3 rounded-xl active:scale-95 text-sm">
+            บันทึก
+          </button>
+        </div>
       </div>
     </div>
   )
