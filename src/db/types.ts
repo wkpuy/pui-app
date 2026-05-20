@@ -168,6 +168,8 @@ export interface FinanceRecord {
   source: 'kasikorn' | 'bangkok_bank' | 'scb' | 'credit_card' | 'manual' | 'other'
   rawRef?: string
   cardName?: string  // e.g. 'KTC', 'KBANK', 'KRUNGSRI', 'UOB'
+  installmentCurrent?: number  // งวดที่ n (จาก CC PDF)
+  installmentTotal?: number    // งวดทั้งหมด (จาก CC PDF)
 }
 
 export interface Installment {

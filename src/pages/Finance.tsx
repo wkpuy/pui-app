@@ -498,6 +498,10 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             source: 'credit_card',
             rawRef: fileId,
             cardName: bankName,
+            ...(txn.installmentInfo ? {
+              installmentCurrent: txn.installmentInfo.current,
+              installmentTotal: txn.installmentInfo.total,
+            } : {}),
           })
           existingKeys.add(key)
           added++
@@ -1217,23 +1221,80 @@ function YearlyTab({ records }: { records: FinanceRecord[] }) {
   )
 }
 
+// helper: strip "XX/YY" installment notation from CC description
+function cleanInstName(desc: string) {
+  return desc
+    .replace(/^\d{2,3}\/\d{2,3}\s+/, '')
+    .replace(/\s*:?\s*\d{2,3}\/\d{2,3}\s*$/, '')
+    .replace(/\s+INT\d+\.?\d*%/i, '')
+    .trim() || desc
+}
+
+interface InstPrefill {
+  name: string
+  monthlyAmount: string
+  totalInstallments: string
+  paidInstallments: string
+  startDate: string
+  cardName?: string
+}
+
 function InstallmentsTab({ installments }: { installments: Installment[] }) {
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Installment | null>(null)
+  const [prefill, setPrefill] = useState<InstPrefill | null>(null)
+
+  // CC financeRecords that carry installment info (imported from PDF)
+  const ccInstRecords = useLiveQuery(() =>
+    db.financeRecords.where('source').equals('credit_card')
+      .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1)
+      .toArray()
+  , [])
+
+  // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group
+  const pendingCCItems: (InstPrefill & { key: string })[] = (() => {
+    if (!ccInstRecords) return []
+    const grouped = new Map<string, FinanceRecord>()
+    for (const r of ccInstRecords) {
+      const name = cleanInstName(r.description)
+      const key = `${name}|${r.installmentTotal}`
+      const cur = grouped.get(key)
+      if (!cur || (r.installmentCurrent ?? 0) > (cur.installmentCurrent ?? 0)) grouped.set(key, r)
+    }
+    // Filter out records that already have a matching plan in db.installments
+    const result: (InstPrefill & { key: string })[] = []
+    for (const [key, r] of grouped) {
+      const name = cleanInstName(r.description)
+      const alreadyLinked = installments.some(i =>
+        i.totalInstallments === r.installmentTotal &&
+        i.name.slice(0, 10) === name.slice(0, 10)
+      )
+      if (alreadyLinked) continue
+      const current = r.installmentCurrent ?? 1
+      const billing = new Date()
+      billing.setDate(1)
+      billing.setMonth(billing.getMonth() - (current - 1))
+      const startDate = billing.toISOString().slice(0, 10)
+      result.push({
+        key,
+        name,
+        monthlyAmount: r.amount.toString(),
+        totalInstallments: (r.installmentTotal ?? 1).toString(),
+        paidInstallments: current.toString(),
+        startDate,
+        cardName: r.cardName,
+      })
+    }
+    return result
+  })()
 
   const activeInstallments = installments.filter(i => i.paidInstallments < i.totalInstallments)
   const totalMonthly = activeInstallments.reduce((s, i) => s + i.monthlyAmount, 0)
 
-  // Check subscription renewals (next 30 days)
-  const upcomingRenewals = installments.filter(inst => {
-    if (inst.totalInstallments > 24) return false // long-term not subscription
-    const start = new Date(inst.startDate)
-    const today = new Date()
-    const daysElapsed = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    const cycleDays = 30
-    const daysUntilRenewal = cycleDays - (daysElapsed % cycleDays)
-    return daysUntilRenewal <= 30
-  })
+  const CARD_COLORS: Record<string, string> = {
+    KTC: 'bg-blue-100 text-blue-700', KBANK: 'bg-green-100 text-green-700',
+    KRUNGSRI: 'bg-yellow-100 text-yellow-700', UOB: 'bg-red-100 text-red-700',
+  }
 
   return (
     <div className="px-4 pt-3 pb-4">
@@ -1242,26 +1303,44 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
           <div className="text-[13px] text-gray-500">ผ่อนต่อเดือนรวม</div>
           <div className="text-2xl font-bold text-red-500">{formatCurrency(totalMonthly)}</div>
         </div>
-        <button onClick={() => { setEditItem(null); setShowForm(true) }}
+        <button onClick={() => { setEditItem(null); setPrefill(null); setShowForm(true) }}
           className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95">
           ＋ เพิ่ม
         </button>
       </div>
 
-      {upcomingRenewals.length > 0 && (
-        <div className="bg-amber-50 rounded-2xl p-3 mb-3">
-          <div className="text-[13px] font-semibold text-amber-700 mb-1.5">🔔 ใกล้ต่ออายุ</div>
-          {upcomingRenewals.map(i => (
-            <div key={i.id} className="text-[12px] text-amber-800">• {i.name} — {formatCurrency(i.monthlyAmount)}</div>
-          ))}
+      {/* ── CC นำเข้า (pending plans from PDF import) ── */}
+      {pendingCCItems.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC (นำเข้าแล้ว — รอสร้างแผน)</div>
+          <div className="flex flex-col gap-2">
+            {pendingCCItems.map(item => (
+              <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-gray-900 truncate">{item.name}</div>
+                  <div className="text-[11px] text-gray-400">
+                    งวดที่ {item.paidInstallments}/{item.totalInstallments} · {formatCurrency(parseFloat(item.monthlyAmount))}/เดือน
+                    {item.cardName && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {item.cardName}</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setEditItem(null); setPrefill(item); setShowForm(true) }}
+                  className="flex-shrink-0 bg-purple-600 text-white text-[12px] font-semibold px-3 py-2 rounded-xl active:scale-95"
+                >
+                  สร้างแผนผ่อน
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {installments.length === 0 ? (
+      {/* ── Installment plans ── */}
+      {installments.length === 0 && pendingCCItems.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <div className="text-4xl mb-3">💳</div>
           <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการผ่อนชำระ</div>
-          <div className="text-[13px]">กดปุ่ม ＋ เพื่อเพิ่มรายการ</div>
+          <div className="text-[13px]">Import PDF แล้วกด "สร้างแผนผ่อน" หรือกด ＋ เพิ่มเอง</div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -1275,18 +1354,16 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <div className="text-[14px] font-semibold text-gray-900">{inst.name}</div>
-                      {inst.cardName && (() => {
-                        const CARD_COLORS: Record<string, string> = {
-                          KTC: 'bg-blue-100 text-blue-700', KBANK: 'bg-green-100 text-green-700',
-                          KRUNGSRI: 'bg-yellow-100 text-yellow-700', UOB: 'bg-red-100 text-red-700',
-                        }
-                        return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${CARD_COLORS[inst.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {inst.cardName}</span>
-                      })()}
+                      {inst.cardName && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${CARD_COLORS[inst.cardName] ?? 'bg-gray-100 text-gray-600'}`}>
+                          💳 {inst.cardName}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[12px] text-gray-400">{inst.category} · เริ่ม {inst.startDate.slice(0, 7)}</div>
                   </div>
                   <div className="flex gap-1">
-                    <IconButton onClick={() => { setEditItem(inst); setShowForm(true) }}>✏️</IconButton>
+                    <IconButton onClick={() => { setEditItem(inst); setPrefill(null); setShowForm(true) }}>✏️</IconButton>
                     <IconButton tone="destructive" onClick={() => { if (confirm('ลบรายการผ่อนนี้?\nไม่สามารถกู้คืนได้')) db.installments.delete(inst.id!) }}>🗑️</IconButton>
                   </div>
                 </div>
@@ -1304,47 +1381,67 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
         </div>
       )}
 
-      {showForm && <InstallmentForm editItem={editItem} onClose={() => { setShowForm(false); setEditItem(null) }} />}
+      {showForm && (
+        <InstallmentForm
+          editItem={editItem}
+          prefill={prefill}
+          onClose={() => { setShowForm(false); setEditItem(null); setPrefill(null) }}
+        />
+      )}
     </div>
   )
 }
 
-function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; onClose: () => void }) {
+function InstallmentForm({ editItem, prefill, onClose }: {
+  editItem: Installment | null
+  prefill?: InstPrefill | null
+  onClose: () => void
+}) {
   const [form, setForm] = useState({
-    name: editItem?.name ?? '',
+    name: editItem?.name ?? prefill?.name ?? '',
     totalAmount: editItem?.totalAmount?.toString() ?? '',
-    monthlyAmount: editItem?.monthlyAmount?.toString() ?? '',
-    totalInstallments: editItem?.totalInstallments?.toString() ?? '',
-    paidInstallments: editItem?.paidInstallments?.toString() ?? '0',
-    startDate: editItem?.startDate ?? new Date().toISOString().slice(0, 10),
+    monthlyAmount: editItem?.monthlyAmount?.toString() ?? prefill?.monthlyAmount ?? '',
+    totalInstallments: editItem?.totalInstallments?.toString() ?? prefill?.totalInstallments ?? '',
+    paidInstallments: editItem?.paidInstallments?.toString() ?? prefill?.paidInstallments ?? '0',
+    startDate: editItem?.startDate ?? prefill?.startDate ?? new Date().toISOString().slice(0, 10),
     category: editItem?.category ?? 'ช้อปปิ้ง',
     source: editItem?.source ?? 'credit_card',
   })
 
   async function save() {
     if (!form.name || !form.monthlyAmount) return
+    const monthly = parseFloat(form.monthlyAmount)
+    const total = parseInt(form.totalInstallments) || 1
     const data = {
       name: form.name,
-      totalAmount: parseFloat(form.totalAmount) || (parseFloat(form.monthlyAmount) * parseInt(form.totalInstallments)),
-      monthlyAmount: parseFloat(form.monthlyAmount),
-      totalInstallments: parseInt(form.totalInstallments) || 1,
+      totalAmount: parseFloat(form.totalAmount) || monthly * total,
+      monthlyAmount: monthly,
+      totalInstallments: total,
       paidInstallments: parseInt(form.paidInstallments) || 0,
       startDate: form.startDate,
       category: form.category,
       source: form.source,
+      ...(prefill?.cardName ? { cardName: prefill.cardName } : {}),
     }
     if (editItem?.id) await db.installments.update(editItem.id, data)
     else await db.installments.add(data)
     onClose()
   }
 
+  const title = editItem ? 'แก้ไขรายการผ่อน' : prefill ? 'สร้างแผนผ่อน' : 'เพิ่มรายการผ่อน'
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
       <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold">{editItem ? 'แก้ไข' : 'เพิ่ม'}รายการผ่อน</h3>
+          <h3 className="text-lg font-bold">{title}</h3>
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
+        {prefill && (
+          <div className="text-[12px] text-purple-600 bg-purple-50 rounded-xl px-3 py-2">
+            ข้อมูลดึงจาก CC import · ตรวจสอบและแก้ไขก่อนบันทึก
+          </div>
+        )}
         <input placeholder="ชื่อรายการ (เช่น iPhone 16, Netflix)" value={form.name}
           onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
@@ -1353,6 +1450,7 @@ function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; 
             <div className="text-[11px] text-gray-500 mb-1">ยอดรวม (บาท)</div>
             <input type="number" value={form.totalAmount}
               onChange={e => setForm(v => ({ ...v, totalAmount: e.target.value }))}
+              placeholder={form.monthlyAmount && form.totalInstallments ? (parseFloat(form.monthlyAmount) * parseInt(form.totalInstallments)).toString() : '0'}
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
           </div>
           <div>
@@ -1377,7 +1475,7 @@ function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; 
           </div>
         </div>
         <div>
-          <div className="text-[11px] text-gray-500 mb-1">วันที่เริ่ม</div>
+          <div className="text-[11px] text-gray-500 mb-1">วันที่เริ่ม (งวดที่ 1)</div>
           <input type="date" value={form.startDate}
             onChange={e => setForm(v => ({ ...v, startDate: e.target.value }))}
             className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
@@ -1386,9 +1484,7 @@ function InstallmentForm({ editItem, onClose }: { editItem: Installment | null; 
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full">
           {CATEGORIES_EXPENSE.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <Button onClick={save}>
-          บันทึก
-        </Button>
+        <Button onClick={save}>บันทึก</Button>
       </div>
     </div>
   )
