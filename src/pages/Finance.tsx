@@ -266,6 +266,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
 }) {
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
   const [showDataSources, setShowDataSources] = useState(false)
+  const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [bills, setBills] = useState<BillFile[]>([])
   const [billsLoading, setBillsLoading] = useState(false)
   const [billsError, setBillsError] = useState<string | null>(null)
@@ -681,7 +682,6 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
               .map(([cat, amt], idx, arr) => {
                 const pct = expense > 0 ? (amt / expense) * 100 : 0
                 const chipColor = CAT_COLORS[cat] ?? 'bg-gray-100 text-gray-500'
-                // extract bg color for progress bar (convert chip class)
                 const barColor = chipColor.includes('orange') ? 'bg-orange-400'
                   : chipColor.includes('blue') ? 'bg-blue-400'
                   : chipColor.includes('pink') ? 'bg-pink-400'
@@ -694,7 +694,8 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
                   : chipColor.includes('purple') ? 'bg-purple-400'
                   : 'bg-gray-400'
                 return (
-                  <div key={cat} className={`px-4 py-3 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                  <button key={cat} onClick={() => setSelectedCat(cat)}
+                    className={`w-full px-4 py-3 text-left active:bg-gray-50 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${chipColor}`}>
@@ -704,15 +705,57 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-gray-400">{pct.toFixed(0)}%</span>
                         <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+                        <span className="text-gray-300 text-[12px]">›</span>
                       </div>
                     </div>
                     <ProgressBar value={amt} max={expense} color={barColor} />
-                  </div>
+                  </button>
                 )
               })}
           </div>
         </>
       )}
+
+      {/* Category drill-down modal */}
+      {selectedCat && (() => {
+        const catRecords = monthRecords.filter(r => r.type === 'expense' && r.category === selectedCat)
+        const catTotal = catRecords.reduce((s, r) => s + r.amount, 0)
+        const chipColor = CAT_COLORS[selectedCat] ?? 'bg-gray-100 text-gray-500'
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setSelectedCat(null)}>
+            <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${chipColor}`}>
+                    {CAT_ICONS[selectedCat] ?? '📦'} {selectedCat}
+                  </span>
+                  <span className="text-[13px] text-gray-500">{catRecords.length} รายการ</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[15px] font-bold text-gray-900">{formatCurrency(catTotal)}</span>
+                  <CloseButton onClick={() => setSelectedCat(null)} />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
+                {catRecords.sort((a, b) => b.amount - a.amount).map(r => (
+                  <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-gray-800 truncate">{r.description || r.category}</div>
+                      <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+                        <span>{r.date}</span>
+                        {r.cardName && <span className="bg-gray-100 px-1 rounded text-[10px]">{r.cardName}</span>}
+                        {r.source === 'kasikorn' && <span className="text-green-600 text-[10px]">KBANK</span>}
+                        {r.source === 'bangkok_bank' && <span className="text-indigo-600 text-[10px]">BBL</span>}
+                      </div>
+                    </div>
+                    <div className="text-[14px] font-bold text-red-500 ml-3 flex-shrink-0">{formatCurrency(r.amount)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Data Sources (collapsible) ── */}
       <div className="mx-4 mb-4">
