@@ -8,6 +8,15 @@ import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBan
 import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, debugWhoopRaw, getValidTokens, saveWhoopTokens } from '../api/whoop'
 import { syncWhoopAndSave } from '../api/whoopSync'
 
+const CLEAR_SECTIONS = [
+  { key: 'home',       label: '🏠 หน้าหลัก',  tables: ['profile', 'netWorthSnapshots'] },
+  { key: 'investment', label: '📈 ลงทุน',     tables: ['investments', 'dividends'] },
+  { key: 'health',     label: '💪 สุขภาพ',    tables: ['healthRecords', 'healthDaily', 'medications', 'medicationLogs'] },
+  { key: 'finance',    label: '💰 การเงิน',   tables: ['financeRecords', 'installments', 'subscriptions', 'salaryRecords', 'condoMortgage', 'taxRecords'] },
+  { key: 'retirement', label: '🌅 เกษียณ',    tables: ['retirementPlan', 'emergencyFund'] },
+  { key: 'coach',      label: '🤖 AI Coach',  tables: ['chatMessages'] },
+] as const
+
 export default function Settings() {
   const navigate = useNavigate()
   const profile = useLiveQuery(() => db.profile.toArray().then(r => r[0]))
@@ -25,10 +34,63 @@ export default function Settings() {
   const [whoopResult, setWhoopResult] = useState<{ text: string; ok: boolean } | null>(null)
   const [whoopDebug, setWhoopDebug] = useState<string>('')
   const [storageStats, setStorageStats] = useState<Awaited<ReturnType<typeof getStorageStats>> | null>(null)
+  const [clearSelected, setClearSelected] = useState<Set<string>>(new Set())
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   async function loadStats() {
     const s = await getStorageStats()
     setStorageStats(s)
+  }
+
+  // Reactive counts per section (keyed by section.key)
+  const sectionCounts = useLiveQuery(async () => {
+    const counts: Record<string, number> = {}
+    for (const sec of CLEAR_SECTIONS) {
+      let total = 0
+      for (const t of sec.tables) {
+        total += await (db as any)[t].count()
+      }
+      counts[sec.key] = total
+    }
+    return counts
+  }, [])
+
+  const allSelected = clearSelected.size === CLEAR_SECTIONS.length
+  const totalSelectedCount = CLEAR_SECTIONS
+    .filter(s => clearSelected.has(s.key))
+    .reduce((sum, s) => sum + (sectionCounts?.[s.key] ?? 0), 0)
+
+  function toggleClearSection(key: string) {
+    setClearSelected(s => {
+      const n = new Set(s)
+      if (n.has(key)) n.delete(key); else n.add(key)
+      return n
+    })
+  }
+
+  function toggleClearAll() {
+    setClearSelected(allSelected ? new Set() : new Set(CLEAR_SECTIONS.map(s => s.key)))
+  }
+
+  async function doClearData() {
+    setClearing(true)
+    try {
+      for (const sec of CLEAR_SECTIONS) {
+        if (!clearSelected.has(sec.key)) continue
+        for (const t of sec.tables) {
+          await (db as any)[t].clear()
+        }
+      }
+      const count = totalSelectedCount
+      setClearSelected(new Set())
+      setShowClearConfirm(false)
+      setSyncStatus(`✓ ล้างข้อมูล ${count} รายการแล้ว`)
+      setTimeout(() => setSyncStatus(''), 3000)
+      loadStats()
+    } finally {
+      setClearing(false)
+    }
   }
 
   useEffect(() => {
@@ -521,6 +583,47 @@ export default function Settings() {
           </Card>
         </div>
 
+        <SectionLabel>ล้างข้อมูลในแอป</SectionLabel>
+        <div className="mx-4 mb-4">
+          <Card>
+            <div className="text-[12px] text-red-600 bg-red-50 rounded-xl px-3 py-2 mb-3">
+              ⚠️ เลือกหมวดที่จะลบ — ลบแล้วกู้คืนไม่ได้ (ยกเว้นกู้จาก Drive backup)
+            </div>
+
+            <label className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gray-50 mb-2 cursor-pointer active:bg-gray-100">
+              <input type="checkbox" checked={allSelected} onChange={toggleClearAll}
+                className="w-5 h-5 accent-red-500" />
+              <div className="text-[14px] font-bold text-gray-900">เลือกทั้งหมด</div>
+            </label>
+
+            <div className="flex flex-col gap-1">
+              {CLEAR_SECTIONS.map(sec => {
+                const count = sectionCounts?.[sec.key] ?? 0
+                const selected = clearSelected.has(sec.key)
+                return (
+                  <label key={sec.key}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer ${count === 0 ? 'opacity-50' : 'active:bg-gray-50'}`}>
+                    <input type="checkbox" checked={selected} disabled={count === 0}
+                      onChange={() => toggleClearSection(sec.key)}
+                      className="w-5 h-5 accent-red-500" />
+                    <div className="flex-1 text-[13px] font-medium text-gray-900">{sec.label}</div>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${count > 0 ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-400'}`}>
+                      {count}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              disabled={clearSelected.size === 0 || totalSelectedCount === 0}
+              className="mt-3 w-full bg-red-500 text-white font-bold py-3 rounded-xl text-sm active:scale-95 disabled:opacity-40">
+              🗑️ ล้างข้อมูล {totalSelectedCount > 0 && `(${totalSelectedCount} รายการ)`}
+            </button>
+          </Card>
+        </div>
+
         <SectionLabel>ปัญหาการใช้งาน</SectionLabel>
         <div className="mx-4 mb-4">
           <Card>
@@ -551,6 +654,38 @@ export default function Settings() {
         </div>
         <div className="h-4" />
       </div>
+
+      {showClearConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => !clearing && setShowClearConfirm(false)}>
+          <div className="bg-white rounded-t-3xl w-full p-5 pb-8 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-2 text-red-600">⚠️ ยืนยันการล้างข้อมูล</h3>
+            <div className="text-[13px] text-gray-700 mb-3">
+              จะลบข้อมูลในหมวดต่อไปนี้ทั้งหมด (รวม {totalSelectedCount} รายการ):
+            </div>
+            <ul className="text-[13px] text-gray-700 space-y-1 mb-4 bg-gray-50 rounded-xl p-3">
+              {CLEAR_SECTIONS.filter(s => clearSelected.has(s.key)).map(s => (
+                <li key={s.key} className="flex justify-between">
+                  <span>• {s.label}</span>
+                  <span className="font-semibold text-gray-500">{sectionCounts?.[s.key] ?? 0}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="text-[12px] text-red-600 bg-red-50 rounded-xl px-3 py-2 mb-4">
+              ⚠️ ลบแล้วกู้คืนไม่ได้
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowClearConfirm(false)} disabled={clearing}
+                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:scale-95 disabled:opacity-50">
+                ยกเลิก
+              </button>
+              <button onClick={doClearData} disabled={clearing}
+                className="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95 disabled:opacity-50">
+                {clearing ? 'กำลังลบ...' : 'ลบทั้งหมด'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
