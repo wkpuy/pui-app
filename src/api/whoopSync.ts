@@ -30,18 +30,9 @@ export async function syncWhoopAndSave(days = 90): Promise<WhoopSyncResult> {
     return { ok: false, message: `WHOOP API: ${e.message}`, added: 0, updated: 0, total: 0 }
   }
 
-  const profile = await db.profile.toArray().then(r => r[0])
-  const ageNow = profile?.dob
-    ? Math.floor((Date.now() - new Date(profile.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
-    : null
-  const hrMax = ageNow ? 208 - 0.7 * ageNow : null
-
   let added = 0, updated = 0
   for (const r of records) {
     const existing = await db.healthDaily.where('date').equals(r.date).first()
-    const vo2max = hrMax && r.restingHeartRate
-      ? Math.round(15.3 * (hrMax / r.restingHeartRate) * 10) / 10
-      : undefined
     const payload = {
       date: r.date,
       recoveryScore: r.recoveryScore,
@@ -56,7 +47,7 @@ export async function syncWhoopAndSave(days = 90): Promise<WhoopSyncResult> {
       strain: r.strain,
       caloriesBurned: r.caloriesBurned,
       bloodOxygen: r.bloodOxygen,
-      vo2max,
+      vo2max: r.vo2max,  // actual value from WHOOP body measurement API
       source: 'whoop' as const,
     }
     if (existing) {

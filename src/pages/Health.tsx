@@ -441,6 +441,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>อายุทางชีวภาพ</CardTitle>
+                <div className="text-[10px] text-gray-400 mb-1">คำนวณจากค่าสุขภาพในแอพ (ไม่ใช่จาก WHOOP)</div>
                 <div className="text-3xl font-bold text-gray-900">{bioAge} <span className="text-base font-normal text-gray-500">ปี</span></div>
                 <div className={`text-sm font-semibold mt-1 ${bioAge < age ? 'text-green-600' : bioAge > age ? 'text-red-500' : 'text-gray-500'}`}>
                   {bioAge < age ? `ดีกว่าอายุจริง ${(age - bioAge).toFixed(1)} ปี 🎉` :

@@ -76,14 +76,24 @@ export interface WhoopDailyData {
   strain?: number
   caloriesBurned?: number
   bloodOxygen?: number
+  vo2max?: number  // from WHOOP body measurement (not calculated)
+}
+
+export interface WhoopBodyMeasurement {
+  vo2max?: number  // max_oxygen_milliliter_per_minute_per_kilogram
+  heightM?: number
+  weightKg?: number
 }
 
 function millisToHours(ms: number): number {
   return Math.round((ms / 3600000) * 10) / 10
 }
 
-function toDateStr(isoStr: string): string {
-  return isoStr.slice(0, 10)
+// Convert UTC ISO string to Thailand date (UTC+7)
+function toDateStrTH(isoStr: string): string {
+  const d = new Date(isoStr)
+  const th = new Date(d.getTime() + 7 * 60 * 60 * 1000)
+  return th.toISOString().slice(0, 10)
 }
 
 async function fetchAllPages(path: string, accessToken: string, startStr: string): Promise<any[]> {
@@ -99,13 +109,27 @@ async function fetchAllPages(path: string, accessToken: string, startStr: string
   return all
 }
 
-export async function debugWhoopRaw(tokens: WhoopTokens): Promise<{ cycle: any; recovery: any; sleep: any }> {
-  const [cycle, recovery, sleep] = await Promise.all([
+export async function fetchWhoopBodyMeasurement(tokens: WhoopTokens): Promise<WhoopBodyMeasurement> {
+  try {
+    const data = await proxyApi('/user/measurement/body', tokens.accessToken)
+    return {
+      vo2max: data?.max_oxygen_milliliter_per_minute_per_kilogram ?? undefined,
+      heightM: data?.height_meter ?? undefined,
+      weightKg: data?.weight_kilogram ?? undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
+export async function debugWhoopRaw(tokens: WhoopTokens): Promise<{ cycle: any; recovery: any; sleep: any; body: any }> {
+  const [cycle, recovery, sleep, body] = await Promise.all([
     proxyApi('/cycle?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
     proxyApi('/recovery?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
     proxyApi('/activity/sleep?limit=1', tokens.accessToken).catch(e => ({ error: e.message })),
+    proxyApi('/user/measurement/body', tokens.accessToken).catch(e => ({ error: e.message })),
   ])
-  return { cycle, recovery, sleep }
+  return { cycle, recovery, sleep, body }
 }
 
 export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<WhoopDailyData[]> {
@@ -113,11 +137,15 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
   start.setDate(start.getDate() - days)
   const startStr = start.toISOString()
 
-  const [recoveries, sleeps, cycles] = await Promise.all([
+  const [recoveries, sleeps, cycles, bodyMeasurement] = await Promise.all([
     fetchAllPages('/recovery', tokens.accessToken, startStr),
     fetchAllPages('/activity/sleep', tokens.accessToken, startStr),
     fetchAllPages('/cycle', tokens.accessToken, startStr),
+    fetchWhoopBodyMeasurement(tokens),
   ])
+
+  // VO2max from WHOOP body measurement (single value, apply to all records)
+  const whoopVo2max = bodyMeasurement.vo2max
 
   const map = new Map<string, WhoopDailyData>()
   const ensure = (date: string) => {
@@ -127,7 +155,7 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
 
   for (const r of recoveries ?? []) {
     if (!r.created_at) continue
-    const d = ensure(toDateStr(r.created_at))
+    const d = ensure(toDateStrTH(r.created_at))
     d.recoveryScore = r.score?.recovery_score
     d.hrv = r.score?.hrv_rmssd_milli ? Math.round(r.score.hrv_rmssd_milli) : undefined
     d.restingHeartRate = r.score?.resting_heart_rate
@@ -136,7 +164,7 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
 
   for (const s of sleeps ?? []) {
     if (!s.start || s.nap) continue
-    const d = ensure(toDateStr(s.start))
+    const d = ensure(toDateStrTH(s.start))
     if (s.score) {
       d.sleepPerformance = s.score.sleep_performance_percentage
       d.respiratoryRate = s.score.respiratory_rate
@@ -156,11 +184,18 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
 
   for (const c of cycles ?? []) {
     if (!c.start) continue
-    const d = ensure(toDateStr(c.start))
+    const d = ensure(toDateStrTH(c.start))
     d.strain = c.score?.strain ? Math.round(c.score.strain * 10) / 10 : undefined
     d.caloriesBurned = c.score?.kilojoule
       ? Math.round(c.score.kilojoule * 0.239006)
       : undefined
+  }
+
+  // Stamp vo2max from body measurement onto every record (WHOOP gives one current value)
+  if (whoopVo2max) {
+    for (const d of map.values()) {
+      d.vo2max = Math.round(whoopVo2max * 10) / 10
+    }
   }
 
   return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date))
