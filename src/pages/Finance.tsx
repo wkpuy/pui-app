@@ -116,13 +116,18 @@ export default function Finance() {
             </button>
           ))}
         </div>
-        {(tab === 'overview' || tab === 'records') && monthRecords.length > 0 && (
+        {(tab === 'overview' || tab === 'records' || tab === 'installments') &&
+          (monthRecords.length > 0 || (installments ?? []).some(i => i.source === 'credit_card')) && (
           <button
             onClick={async () => {
-              if (!confirm(`ลบรายการทั้งหมด ${monthRecords.length} รายการของเดือนนี้ รวมถึงแผนผ่อน CC ทั้งหมด?\nไม่สามารถกู้คืนได้`)) return
               const ccInst = await db.installments.where('source').equals('credit_card').toArray()
-              await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
-              await db.installments.bulkDelete(ccInst.map(i => i.id!))
+              const msg = [
+                monthRecords.length > 0 ? `รายการ ${monthRecords.length} รายการของเดือนนี้` : '',
+                ccInst.length > 0 ? `แผนผ่อน CC ${ccInst.length} รายการ` : '',
+              ].filter(Boolean).join(' + ')
+              if (!confirm(`ลบ ${msg}?\nไม่สามารถกู้คืนได้`)) return
+              if (monthRecords.length > 0) await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
+              if (ccInst.length > 0) await db.installments.bulkDelete(ccInst.map(i => i.id!))
             }}
             className="flex-shrink-0 px-3 py-3 text-red-400 text-[16px] border-b-2 border-transparent">
             🗑️
@@ -516,10 +521,11 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
           )
 
-          // Compute startDate = month when installment 1 was first charged
-          // billingMonth = postDate (posting date is within the billing cycle month)
-          // installment 1 month = billingMonth - (current - 1)
-          const billingBase = new Date(((txn.postDate || txn.transDate || fallbackDate).slice(0, 8)) + '01')
+          // Compute startDate = month when installment 1 was first charged.
+          // Use today as the billing month (user imports PDF in the same month it's billed).
+          // installment 1 month = today - (current - 1) months
+          const billingBase = new Date()
+          billingBase.setDate(1)
           billingBase.setMonth(billingBase.getMonth() - (current - 1))
           const instStartDate = billingBase.toISOString().slice(0, 10)
 

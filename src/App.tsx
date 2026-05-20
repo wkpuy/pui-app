@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+// @ts-ignore — virtual module provided by vite-plugin-pwa at build time
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import BottomNav from './components/BottomNav'
 import { useAutoSync } from './hooks/useAutoSync'
 import Dashboard from './pages/Dashboard'
@@ -52,6 +54,7 @@ export default function App() {
 function MainLayout() {
   useAutoSync()
   const [healthToast, setHealthToast] = useState<string | null>(null)
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
 
   useEffect(() => {
     handleWhoopCallback().then(msg => {
@@ -64,6 +67,15 @@ function MainLayout() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* PWA update banner */}
+      {needRefresh && (
+        <div className="fixed top-0 inset-x-0 z-[999] bg-indigo-600 text-white text-[13px] font-semibold px-4 py-3 flex items-center justify-between">
+          <span>มีเวอร์ชั่นใหม่พร้อมใช้งาน</span>
+          <button onClick={() => updateServiceWorker(true)} className="bg-white text-indigo-600 text-[12px] font-bold px-3 py-1 rounded-lg active:scale-95">
+            อัพเดท
+          </button>
+        </div>
+      )}
       {/* WHOOP toast */}
       {healthToast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-[13px] font-semibold px-4 py-2.5 rounded-2xl shadow-xl">
