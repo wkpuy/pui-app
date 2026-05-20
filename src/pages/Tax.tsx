@@ -67,22 +67,19 @@ export default function Tax() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'summary' && <SummaryTab year={year} onSwitch={setTab} />}
-        {tab === 'income' && <IncomeTab record={current} />}
-        {tab === 'deductions' && <DeductionsTab record={current} />}
-        {tab === 'simulator' && <SimulatorTab record={current} />}
+        {tab === 'summary' && <SummaryTab key={current.id} record={current} onSwitch={setTab} />}
+        {tab === 'income' && <IncomeTab key={current.id} record={current} />}
+        {tab === 'deductions' && <DeductionsTab key={current.id} record={current} />}
+        {tab === 'simulator' && <SimulatorTab key={current.id} record={current} />}
       </div>
     </div>
   )
 }
 
 // ── Summary Tab ────────────────────────────────────────────────────────────
-function SummaryTab({ year, onSwitch }: {
-  year: number; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
+function SummaryTab({ record, onSwitch }: {
+  record: TaxRecord; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
 }) {
-  // Query DB directly so this tab always reacts to the latest saved data
-  const record = useLiveQuery(() => db.taxRecords.where('year').equals(year).first(), [year])
-  if (!record) return null
   const breakdown = calcThaiTax(record)
   const suggestions = suggestUnusedAllowances(record)
 
@@ -259,10 +256,6 @@ function IncomeTab({ record }: { record: TaxRecord }) {
   const [saved, setSaved] = useState(false)
   const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
 
-  // Re-sync form whenever the DB record changes (id or updatedAt) so the next
-  // edit starts from the latest saved state.
-  useEffect(() => { setForm(initForm(record, INCOME_FIELDS)); setSaved(false) }, [record.id, record.updatedAt])
-
   async function handleSave() {
     await saveForm(record, form, [])
     setSaved(true)
@@ -297,8 +290,6 @@ function DeductionsTab({ record }: { record: TaxRecord }) {
   const [form, setForm] = useState(() => initForm(record, DEDUCTION_FIELDS))
   const [saved, setSaved] = useState(false)
   const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
-
-  useEffect(() => { setForm(initForm(record, DEDUCTION_FIELDS)); setSaved(false) }, [record.id, record.updatedAt])
 
   async function handleSave() {
     await saveForm(record, form, INT_FIELDS)

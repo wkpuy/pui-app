@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components/Card'
 import Button, { IconButton, CloseButton } from '../components/Button'
 import { formatCurrency } from '../utils/calculations'
-import type { FinanceRecord, Installment, Subscription } from '../db/types'
+import type { FinanceRecord, Subscription } from '../db/types'
 import { listBillFiles } from '../api/google'
 import type { BillFile, DriveFile } from '../api/google'
 import type { CreditCardTransaction } from '../api/pdfParser'
@@ -79,7 +79,6 @@ export default function Finance() {
   const [deleteToast, setDeleteToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const records = useLiveQuery(() => db.financeRecords.orderBy('date').reverse().toArray())
-  const installments = useLiveQuery(() => db.installments.orderBy('startDate').reverse().toArray())
 
   const monthRecords = records?.filter(r => r.date.startsWith(month)) ?? []
   const income = monthRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0)
@@ -134,7 +133,6 @@ export default function Finance() {
             expenseByCategory={expenseByCategory}
             monthRecords={monthRecords}
             month={month}
-            installments={installments ?? []}
           />
         )}
         {tab === 'records' && (
@@ -144,7 +142,7 @@ export default function Finance() {
           />
         )}
         {tab === 'yearly' && <YearlyTab records={records ?? []} />}
-        {tab === 'installments' && <InstallmentsTab installments={installments ?? []} month={month} />}
+        {tab === 'installments' && <InstallmentsTab month={month} />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'budget' && <BudgetTab month={month} />}
       </div>
@@ -160,7 +158,6 @@ export default function Finance() {
         <DeleteScopeModal
           month={month}
           monthRecords={monthRecords}
-          installments={installments ?? []}
           onClose={() => setShowDeleteModal(false)}
           onDone={(text) => { setShowDeleteModal(false); setDeleteToast({ text, type: 'success' }) }}
         />
@@ -171,26 +168,13 @@ export default function Finance() {
   )
 }
 
-function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }: {
+function DeleteScopeModal({ month, monthRecords, onClose, onDone }: {
   month: string
   monthRecords: FinanceRecord[]
-  installments: Installment[]
   onClose: () => void
   onDone: (text: string) => void
 }) {
-  const ccInstallments = installments.filter(i => i.source === 'credit_card')
-
-  // CC pending records across ALL months (matches what shows in ผ่อน tab pending section)
-  const allCCPending = useLiveQuery(() =>
-    db.financeRecords.where('source').equals('credit_card')
-      .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1)
-      .toArray()
-  , [])
-  const ccPendingCount = allCCPending?.length ?? 0
-
   const [optRecords, setOptRecords] = useState(monthRecords.length > 0)
-  const [optInstallments, setOptInstallments] = useState(false)
-  const [optPending, setOptPending] = useState(false)
   const [busy, setBusy] = useState(false)
 
   async function doDelete() {
@@ -200,25 +184,11 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
       await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
       parts.push(`รายการเดือนนี้ ${monthRecords.length}`)
     }
-    if (optInstallments && ccInstallments.length > 0) {
-      await db.installments.bulkDelete(ccInstallments.map(i => i.id!))
-      parts.push(`แผนผ่อน CC ${ccInstallments.length}`)
-    }
-    if (optPending && allCCPending && allCCPending.length > 0) {
-      // Clear installment markers from ALL CC pending records (across all months)
-      for (const r of allCCPending) {
-        await db.financeRecords.update(r.id!, { installmentCurrent: undefined, installmentTotal: undefined })
-      }
-      parts.push(`pending CC ${allCCPending.length}`)
-    }
     setBusy(false)
     onDone(parts.length > 0 ? `ลบ ${parts.join(' + ')} แล้ว` : 'ไม่มีรายการให้ลบ')
   }
 
   const monthLabel = month.slice(5) + '/' + month.slice(2, 4)
-  const canDelete = (optRecords && monthRecords.length > 0)
-    || (optInstallments && ccInstallments.length > 0)
-    || (optPending && ccPendingCount > 0)
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
@@ -232,7 +202,7 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
           ⚠️ ลบแล้วกู้คืนไม่ได้ — เลือกสิ่งที่ต้องการลบ
         </div>
 
-        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-2 cursor-pointer ${monthRecords.length === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
+        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-4 cursor-pointer ${monthRecords.length === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
           <input type="checkbox" checked={optRecords} disabled={monthRecords.length === 0}
             onChange={e => setOptRecords(e.target.checked)}
             className="w-5 h-5 accent-red-500" />
@@ -242,32 +212,12 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
           </div>
         </label>
 
-        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-2 cursor-pointer ${ccInstallments.length === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
-          <input type="checkbox" checked={optInstallments} disabled={ccInstallments.length === 0}
-            onChange={e => setOptInstallments(e.target.checked)}
-            className="w-5 h-5 accent-red-500" />
-          <div className="flex-1">
-            <div className="text-[14px] font-semibold text-gray-900">แผนผ่อน CC ทั้งหมด</div>
-            <div className="text-[12px] text-gray-500">{ccInstallments.length} แผน</div>
-          </div>
-        </label>
-
-        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-4 cursor-pointer ${ccPendingCount === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
-          <input type="checkbox" checked={optPending} disabled={ccPendingCount === 0}
-            onChange={e => setOptPending(e.target.checked)}
-            className="w-5 h-5 accent-red-500" />
-          <div className="flex-1">
-            <div className="text-[14px] font-semibold text-gray-900">รายการ CC pending (เคลียร์ข้อมูลงวดทุกเดือน)</div>
-            <div className="text-[12px] text-gray-500">{ccPendingCount} รายการ (ทุกเดือนรวมกัน)</div>
-          </div>
-        </label>
-
         <div className="flex gap-2">
           <button onClick={onClose} disabled={busy}
             className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:scale-95 disabled:opacity-50">
             ยกเลิก
           </button>
-          <button onClick={doDelete} disabled={!canDelete || busy}
+          <button onClick={doDelete} disabled={!optRecords || monthRecords.length === 0 || busy}
             className="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95 disabled:opacity-40">
             {busy ? 'กำลังลบ...' : 'ลบ'}
           </button>
@@ -311,8 +261,8 @@ function detectCat(description: string, type?: 'income' | 'expense'): string {
   return type === 'income' ? 'โอนเข้า' : 'อื่นๆ'
 }
 
-function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month, installments }: {
-  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string; installments: Installment[]
+function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, month }: {
+  income: number; expense: number; net: number; expenseByCategory: Record<string, number>; monthRecords: FinanceRecord[]; month: string
 }) {
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
   const [showDataSources, setShowDataSources] = useState(false)
@@ -588,7 +538,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       let skipped = 0
 
       // Single transaction covering both financeRecords + installments
-      await db.transaction('rw', [db.financeRecords, db.installments], async () => {
+      await db.transaction('rw', [db.financeRecords], async () => {
         // Build dedup set inside the transaction to get a consistent snapshot
         const allCCRecords = await db.financeRecords.where('source').equals('credit_card').toArray()
         const existingKeys = new Set(allCCRecords.map(r => `${r.date}|${r.amount}|${r.description}`))
@@ -690,64 +640,30 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         )
       })()}
 
-      {/* Future installment payment plan */}
+      {/* Monthly installment summary — only records from the selected import month */}
       {(() => {
-        const active = installments.filter(i => i.paidInstallments < i.totalInstallments)
-        if (active.length === 0) return null
-        const baseDate = new Date(month + '-01')
-        const baseYear = baseDate.getFullYear()
-        const baseMonth = baseDate.getMonth()
-        const months: { key: string; label: string; total: number; items: { inst: Installment; remaining: number }[] }[] = []
-        const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
-        for (let offset = 0; offset < 12; offset++) {
-          const y = baseYear + Math.floor((baseMonth + offset) / 12)
-          const m = (baseMonth + offset) % 12
-          const key = `${y}-${String(m + 1).padStart(2, '0')}`
-          const items: { inst: Installment; remaining: number }[] = []
-          let total = 0
-          for (const inst of active) {
-            const s = new Date(inst.startDate)
-            const monthDiff = (y - s.getFullYear()) * 12 + (m - s.getMonth())
-            const dueInstallmentNum = monthDiff + 1
-            if (dueInstallmentNum >= 1 && dueInstallmentNum <= inst.totalInstallments && dueInstallmentNum > inst.paidInstallments) {
-              total += inst.monthlyAmount
-              items.push({ inst, remaining: inst.totalInstallments - dueInstallmentNum + 1 })
-            }
-          }
-          if (total > 0) months.push({ key, label: `${thaiMonths[m]} ${y + 543}`, total, items })
-          if (months.length >= 6 && offset >= 5) break
-        }
-        if (months.length === 0) return null
-        const grandTotal = months.reduce((s, m) => s + m.total, 0)
+        const instRecs = monthRecords.filter(r => r.type === 'expense' && (r.installmentTotal ?? 0) > 1)
+        if (instRecs.length === 0) return null
+        const total = instRecs.reduce((s, r) => s + r.amount, 0)
         return (
           <>
-            <SectionLabel>📅 แผนผ่อนล่วงหน้า</SectionLabel>
+            <SectionLabel>💳 ยอดผ่อนเดือนนี้</SectionLabel>
             <div className="mx-4 mb-4 bg-white rounded-2xl overflow-hidden shadow-sm">
               <div className="px-4 py-2.5 bg-amber-50 flex justify-between border-b border-amber-100">
-                <span className="text-[12px] font-semibold text-amber-700">ยอดผ่อนรวม {months.length} เดือนข้างหน้า</span>
-                <span className="text-[13px] font-bold text-amber-900">{formatCurrency(grandTotal)}</span>
+                <span className="text-[12px] font-semibold text-amber-700">รวมยอดผ่อน {instRecs.length} รายการ</span>
+                <span className="text-[13px] font-bold text-amber-900">{formatCurrency(total)}</span>
               </div>
-              {months.map((mo, idx) => (
-                <details key={mo.key} className={idx < months.length - 1 ? 'border-b border-gray-50' : ''}>
-                  <summary className="px-4 py-3 flex items-center justify-between cursor-pointer list-none">
-                    <span className="text-[13px] font-semibold text-gray-700">{mo.label}</span>
-                    <span className="text-[13px] font-bold text-red-500">{formatCurrency(mo.total)}</span>
-                  </summary>
-                  <div className="bg-gray-50 px-4 py-2">
-                    {mo.items.map((it, i) => (
-                      <div key={i} className="flex items-center justify-between py-1.5 text-[12px]">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-700 truncate">{it.inst.name}</div>
-                          <div className="text-[10px] text-gray-400">
-                            {it.inst.cardName && <span className="mr-1.5">💳 {it.inst.cardName}</span>}
-                            เหลือ {it.remaining}/{it.inst.totalInstallments} งวด
-                          </div>
-                        </div>
-                        <div className="text-[12px] font-bold text-gray-800 ml-2">{formatCurrency(it.inst.monthlyAmount)}</div>
-                      </div>
-                    ))}
+              {instRecs.map((r, i) => (
+                <div key={r.id ?? i} className="px-4 py-2.5 flex items-center justify-between border-b border-gray-50 last:border-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium text-gray-700 truncate">{cleanInstName(r.description)}</div>
+                    <div className="text-[11px] text-gray-400">
+                      {r.cardName && <span className="mr-1.5">💳 {r.cardName}</span>}
+                      งวดที่ {r.installmentCurrent}/{r.installmentTotal}
+                    </div>
                   </div>
-                </details>
+                  <div className="text-[13px] font-bold text-gray-800">{formatCurrency(r.amount)}</div>
+                </div>
               ))}
             </div>
           </>
@@ -1345,317 +1261,249 @@ function cleanInstName(desc: string) {
     .trim() || desc
 }
 
-interface InstPrefill {
-  name: string
-  monthlyAmount: string
-  totalInstallments: string
-  paidInstallments: string
-  startDate: string
-  cardName?: string
-}
-
-// Parse installment notation from CC description: "02/10 NAME" or "NAME 02/10"
-function parseInstFromDesc(desc: string): { current: number; total: number } | null {
-  const m = desc.match(/^(\d{2,3})\/(\d{2,3})\s/) || desc.match(/\s(\d{2,3})\/(\d{2,3})$/) || desc.match(/:?\s*(\d{2,3})\/(\d{2,3})/)
-  if (!m) return null
-  const current = parseInt(m[1])
-  const total = parseInt(m[2])
-  if (current < 1 || total < 2 || current > total || total > 120) return null
-  return { current, total }
-}
-
-function InstallmentsTab({ installments, month }: { installments: Installment[]; month: string }) {
-  const [showForm, setShowForm] = useState(false)
-  const [editItem, setEditItem] = useState<Installment | null>(null)
-  const [prefill, setPrefill] = useState<InstPrefill | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<string | null>(null)
-
-  async function backfillCCInstallments() {
-    setScanning(true)
-    setScanResult(null)
-    try {
-      const ccRecords = await db.financeRecords.where('source').equals('credit_card')
-        .filter(r => !r.installmentTotal)
-        .toArray()
-      let updated = 0
-      for (const r of ccRecords) {
-        const parsed = parseInstFromDesc(r.description ?? '')
-        if (!parsed) continue
-        await db.financeRecords.update(r.id!, {
-          installmentCurrent: parsed.current,
-          installmentTotal: parsed.total,
-        })
-        updated++
-      }
-      setScanResult(updated > 0 ? `พบ ${updated} รายการผ่อน` : 'ไม่พบรายการใหม่')
-    } finally {
-      setScanning(false)
-    }
-  }
-
-  // CC financeRecords with installment info, scoped to the selected month
-  // (date was set to the chosen import month, so this filters by the month picker)
+function InstallmentsTab({ month }: { month: string }) {
   const ccInstRecords = useLiveQuery(() =>
     db.financeRecords.where('source').equals('credit_card')
       .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1 && r.date.startsWith(month))
       .toArray()
   , [month])
 
-  // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group.
-  // Last installments (current === total) stay in the list but won't get a plan button.
-  const pendingCCItems: (InstPrefill & { key: string; isLast: boolean })[] = (() => {
-    if (!ccInstRecords) return []
+  // All CC installment records across every month — for forward projection
+  const allCCInstRecords = useLiveQuery(() =>
+    db.financeRecords.where('source').equals('credit_card')
+      .filter(r => (r.installmentTotal ?? 0) > 1)
+      .toArray()
+  , [])
+
+  const monthInstRecs = ccInstRecords ?? []
+  const totalMonthInstallments = monthInstRecs.reduce((s, r) => s + r.amount, 0)
+
+  // Project remaining installments into future months
+  const futureMonths = useMemo(() => {
+    if (!allCCInstRecords) return []
+    // Group by (cleanName + installmentTotal), keep record with highest installmentCurrent
     const grouped = new Map<string, FinanceRecord>()
-    for (const r of ccInstRecords) {
-      const name = cleanInstName(r.description)
-      const key = `${name}|${r.installmentTotal}`
+    for (const r of allCCInstRecords) {
+      const key = `${cleanInstName(r.description)}|${r.installmentTotal}`
       const cur = grouped.get(key)
       if (!cur || (r.installmentCurrent ?? 0) > (cur.installmentCurrent ?? 0)) grouped.set(key, r)
     }
-    const result: (InstPrefill & { key: string; isLast: boolean })[] = []
-    for (const [key, r] of grouped) {
-      const current = r.installmentCurrent ?? 1
-      const total = r.installmentTotal ?? 1
-      const name = cleanInstName(r.description)
-      const alreadyLinked = installments.some(i =>
-        i.totalInstallments === total &&
-        i.name.slice(0, 10) === name.slice(0, 10)
-      )
-      if (alreadyLinked) continue
-      // Derive billing month from the record's own date (not today),
-      // so importing an April statement correctly starts in April.
-      const [byear, bmonth] = (r.date ?? '').slice(0, 7).split('-').map(Number)
-      const billing = new Date(byear, bmonth - 1, 1)
-      billing.setMonth(billing.getMonth() - (current - 1))
-      const startDate = billing.toISOString().slice(0, 10)
-      result.push({
-        key,
-        name,
-        monthlyAmount: r.amount.toString(),
-        totalInstallments: total.toString(),
-        paidInstallments: current.toString(),
-        startDate,
-        cardName: r.cardName,
-        isLast: current >= total,
-      })
+    // Project each item's remaining installments into their due months
+    const byMonth = new Map<string, Array<{ name: string; amount: number; current: number; total: number; cardName?: string }>>()
+    for (const r of grouped.values()) {
+      const latestCurrent = r.installmentCurrent ?? 0
+      const total = r.installmentTotal ?? 0
+      if (latestCurrent >= total) continue
+      const [iy, im] = r.date.slice(0, 7).split('-').map(Number)
+      for (let n = latestCurrent + 1; n <= total; n++) {
+        const d = new Date(iy, im - 1 + (n - latestCurrent), 1)
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        if (!byMonth.has(key)) byMonth.set(key, [])
+        byMonth.get(key)!.push({ name: cleanInstName(r.description), amount: r.amount, current: n, total, cardName: r.cardName })
+      }
     }
-    return result
-  })()
+    // Show months after the selected month (picker), not after today
+    return Array.from(byMonth.entries())
+      .filter(([m]) => m > month)
+      .sort(([a], [b]) => a.localeCompare(b))
+  }, [allCCInstRecords, month])
 
-  const activeInstallments = installments.filter(i => i.paidInstallments < i.totalInstallments)
-  const totalMonthly = activeInstallments.reduce((s, i) => s + i.monthlyAmount, 0)
+  const [editTarget, setEditTarget] = useState<FinanceRecord | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FinanceRecord | null>(null)
 
   const CARD_COLORS: Record<string, string> = {
     KTC: 'bg-blue-100 text-blue-700', KBANK: 'bg-green-100 text-green-700',
     KRUNGSRI: 'bg-yellow-100 text-yellow-700', UOB: 'bg-red-100 text-red-700',
   }
+  const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
 
   return (
     <div className="px-4 pt-3 pb-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="text-[13px] text-gray-500">ผ่อนต่อเดือนรวม</div>
-          <div className="text-2xl font-bold text-red-500">{formatCurrency(totalMonthly)}</div>
-        </div>
-        <button onClick={() => { setEditItem(null); setPrefill(null); setShowForm(true) }}
-          className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95">
-          ＋ เพิ่ม
-        </button>
-      </div>
-
-      {/* ── Scan button for old CC records ── */}
-      <div className="flex items-center gap-2 mb-3">
-        <button
-          onClick={backfillCCInstallments}
-          disabled={scanning}
-          className="flex-1 bg-purple-50 border border-purple-200 text-purple-700 text-[12px] font-semibold px-3 py-2 rounded-xl active:scale-95 disabled:opacity-50"
-        >
-          {scanning ? '⏳ กำลังสแกน...' : '🔍 สแกนรายการผ่อน CC เก่า'}
-        </button>
-        {scanResult && <span className="text-[12px] text-purple-600 font-semibold">{scanResult}</span>}
-      </div>
-
-      {/* ── CC นำเข้า (pending plans from PDF import) ── */}
-      {pendingCCItems.length > 0 && (
-        <div className="mb-4">
-          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC ของเดือน {month.slice(5)}/{month.slice(2, 4)}</div>
-          <div className="flex flex-col gap-2">
-            {pendingCCItems.map(item => (
-              <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
-                <div className={`flex items-center justify-between ${item.isLast ? '' : 'mb-2'}`}>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold text-gray-900 truncate">{item.name}</div>
-                    <div className="text-[11px] text-gray-400">
-                      งวดที่ {item.paidInstallments}/{item.totalInstallments} · {formatCurrency(parseFloat(item.monthlyAmount))}/เดือน
-                      {item.cardName && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {item.cardName}</span>}
-                      {item.isLast && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">✓ งวดสุดท้าย</span>}
-                    </div>
-                  </div>
-                </div>
-                {!item.isLast && (
-                  <button
-                    onClick={() => { setEditItem(null); setPrefill(item); setShowForm(true) }}
-                    className="text-[11px] font-semibold text-purple-600 active:scale-95"
-                  >
-                    + สร้างแผนผ่อนงวดที่เหลือ
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Installment plans ── */}
-      {installments.length === 0 && pendingCCItems.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
+      {/* Current month's imported installments */}
+      {monthInstRecs.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
           <div className="text-4xl mb-3">💳</div>
-          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการผ่อนชำระ</div>
-          <div className="text-[13px]">Import PDF แล้วกด "สร้างแผนผ่อน" หรือกด ＋ เพิ่มเอง</div>
+          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการผ่อนในเดือนนี้</div>
+          <div className="text-[13px]">Import PDF บัตรเครดิตเพื่อดูรายการผ่อน</div>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {installments.map(inst => {
-            const remaining = inst.totalInstallments - inst.paidInstallments
-            const pct = (inst.paidInstallments / inst.totalInstallments) * 100
-            const isDone = remaining <= 0
-            return (
-              <div key={inst.id} className={`bg-white rounded-2xl p-4 shadow-sm ${isDone ? 'opacity-60' : ''}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <div className="text-[14px] font-semibold text-gray-900">{inst.name}</div>
-                      {inst.cardName && (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${CARD_COLORS[inst.cardName] ?? 'bg-gray-100 text-gray-600'}`}>
-                          💳 {inst.cardName}
-                        </span>
-                      )}
+        <>
+          <div className="mb-3">
+            <div className="text-[13px] text-gray-500">ยอดผ่อนเดือนนี้รวม</div>
+            <div className="text-2xl font-bold text-red-500">{formatCurrency(totalMonthInstallments)}</div>
+          </div>
+          <div className="flex flex-col gap-2 mb-5">
+            {monthInstRecs.map((r, i) => {
+              const name = cleanInstName(r.description)
+              const pct = r.installmentTotal ? ((r.installmentCurrent ?? 0) / r.installmentTotal) * 100 : 0
+              const isLast = (r.installmentCurrent ?? 0) >= (r.installmentTotal ?? 1)
+              return (
+                <div key={r.id ?? i} className="bg-white rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        <div className="text-[14px] font-semibold text-gray-900 truncate">{name}</div>
+                        {r.cardName && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${CARD_COLORS[r.cardName] ?? 'bg-gray-100 text-gray-600'}`}>
+                            💳 {r.cardName}
+                          </span>
+                        )}
+                        {isLast && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 bg-green-100 text-green-700">✓ งวดสุดท้าย</span>
+                        )}
+                      </div>
+                      <div className="text-[12px] text-gray-400">งวดที่ {r.installmentCurrent}/{r.installmentTotal}</div>
                     </div>
-                    <div className="text-[12px] text-gray-400">{inst.category} · เริ่ม {inst.startDate.slice(0, 7)}</div>
+                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <div className="text-[15px] font-bold text-red-500">{formatCurrency(r.amount)}</div>
+                      <IconButton onClick={() => setEditTarget(r)}>✏️</IconButton>
+                      <IconButton tone="destructive" onClick={() => setDeleteTarget(r)}>🗑️</IconButton>
+                    </div>
                   </div>
-                  <div className="flex gap-1">
-                    <IconButton onClick={() => { setEditItem(inst); setPrefill(null); setShowForm(true) }}>✏️</IconButton>
-                    <IconButton tone="destructive" onClick={() => { if (confirm('ลบรายการผ่อนนี้?\nไม่สามารถกู้คืนได้')) db.installments.delete(inst.id!) }}>🗑️</IconButton>
-                  </div>
+                  <ProgressBar value={pct} max={100} color={isLast ? 'bg-green-500' : 'bg-indigo-500'} />
                 </div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[13px] text-gray-600">{isDone ? '✅ ปิดแล้ว' : `เหลือ ${remaining} งวด`}</span>
-                  <span className="text-[14px] font-bold text-indigo-600">{formatCurrency(inst.monthlyAmount)}/เดือน</span>
-                </div>
-                <ProgressBar value={pct} max={100} color={isDone ? 'bg-green-500' : 'bg-indigo-500'} />
-                <div className="text-[11px] text-gray-400 mt-1">
-                  {inst.paidInstallments}/{inst.totalInstallments} งวด · รวม {formatCurrency(inst.totalAmount)}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </>
       )}
 
-      {showForm && (
-        <InstallmentForm
-          editItem={editItem}
-          prefill={prefill}
-          onClose={() => { setShowForm(false); setEditItem(null); setPrefill(null) }}
+      {/* Forward projection */}
+      {futureMonths.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[13px] font-bold text-indigo-700">📅 ประมาณการยอดผ่อนล่วงหน้า</div>
+            <div className="text-[11px] text-gray-400">{futureMonths.length} เดือน</div>
+          </div>
+          <div className="text-[11px] text-gray-400 mb-3">คำนวณจากงวดที่ import ล่าสุดของแต่ละรายการ</div>
+          <div className="flex flex-col gap-2">
+            {futureMonths.map(([monthKey, items]) => {
+              const [y, m] = monthKey.split('-').map(Number)
+              const label = `${THAI_MONTHS[m - 1]} ${y}`
+              const total = items.reduce((s, i) => s + i.amount, 0)
+              return (
+                <div key={monthKey} className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[13px] font-bold text-indigo-800">{label}</div>
+                    <div className="text-[14px] font-bold text-indigo-700">{formatCurrency(total)}</div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {items.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                          <span className="text-[12px] text-gray-600 truncate">{item.name}</span>
+                          {item.cardName && (
+                            <span className={`text-[10px] font-bold px-1 py-0.5 rounded-full flex-shrink-0 ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>{item.cardName}</span>
+                          )}
+                          <span className="text-[11px] text-gray-400 flex-shrink-0">งวด {item.current}/{item.total}</span>
+                        </div>
+                        <div className="text-[13px] font-semibold text-indigo-600 ml-2 flex-shrink-0">{formatCurrency(item.amount)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Edit modal */}
+      {editTarget && (
+        <InstallmentEditForm
+          record={editTarget}
+          onClose={() => setEditTarget(null)}
         />
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-t-3xl w-full p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="text-[16px] font-bold text-gray-900 mb-1">ลบรายการนี้?</div>
+            <div className="text-[13px] text-gray-500 mb-4 truncate">
+              {cleanInstName(deleteTarget.description)} · งวดที่ {deleteTarget.installmentCurrent}/{deleteTarget.installmentTotal}
+            </div>
+            <div className="text-[12px] text-red-500 bg-red-50 rounded-xl px-3 py-2 mb-4">⚠️ ลบแล้วกู้คืนไม่ได้</div>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteTarget(null)}
+                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:scale-95">
+                ยกเลิก
+              </button>
+              <button onClick={async () => { await db.financeRecords.delete(deleteTarget.id!); setDeleteTarget(null) }}
+                className="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95">
+                ลบ
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function InstallmentForm({ editItem, prefill, onClose }: {
-  editItem: Installment | null
-  prefill?: InstPrefill | null
-  onClose: () => void
-}) {
+function InstallmentEditForm({ record, onClose }: { record: FinanceRecord; onClose: () => void }) {
   const [form, setForm] = useState({
-    name: editItem?.name ?? prefill?.name ?? '',
-    totalAmount: editItem?.totalAmount?.toString() ?? '',
-    monthlyAmount: editItem?.monthlyAmount?.toString() ?? prefill?.monthlyAmount ?? '',
-    totalInstallments: editItem?.totalInstallments?.toString() ?? prefill?.totalInstallments ?? '',
-    paidInstallments: editItem?.paidInstallments?.toString() ?? prefill?.paidInstallments ?? '0',
-    startDate: editItem?.startDate ?? prefill?.startDate ?? new Date().toISOString().slice(0, 10),
-    category: editItem?.category ?? 'ช้อปปิ้ง',
-    source: editItem?.source ?? 'credit_card',
+    description: record.description ?? '',
+    amount: record.amount.toString(),
+    installmentCurrent: (record.installmentCurrent ?? 1).toString(),
+    installmentTotal: (record.installmentTotal ?? 1).toString(),
+    cardName: record.cardName ?? '',
   })
 
+  const CARD_OPTIONS = ['KTC', 'KBANK', 'KRUNGSRI', 'UOB', '']
+
   async function save() {
-    if (!form.name || !form.monthlyAmount) return
-    const monthly = parseFloat(form.monthlyAmount)
-    const total = parseInt(form.totalInstallments) || 1
-    const data = {
-      name: form.name,
-      totalAmount: parseFloat(form.totalAmount) || monthly * total,
-      monthlyAmount: monthly,
-      totalInstallments: total,
-      paidInstallments: parseInt(form.paidInstallments) || 0,
-      startDate: form.startDate,
-      category: form.category,
-      source: form.source,
-      ...(prefill?.cardName ? { cardName: prefill.cardName } : {}),
-    }
-    if (editItem?.id) await db.installments.update(editItem.id, data)
-    else await db.installments.add(data)
+    const amount = parseFloat(form.amount)
+    const current = parseInt(form.installmentCurrent)
+    const total = parseInt(form.installmentTotal)
+    if (!form.description || isNaN(amount) || amount <= 0) return
+    await db.financeRecords.update(record.id!, {
+      description: form.description.trim(),
+      amount,
+      installmentCurrent: isNaN(current) ? undefined : current,
+      installmentTotal: isNaN(total) ? undefined : total,
+      cardName: form.cardName || undefined,
+    })
     onClose()
   }
-
-  const title = editItem ? 'แก้ไขรายการผ่อน' : prefill ? 'สร้างแผนผ่อน' : 'เพิ่มรายการผ่อน'
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
       <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
+          <h3 className="text-[16px] font-bold text-gray-900">✏️ แก้ไขรายการผ่อน</h3>
+          <CloseButton onClick={onClose} />
         </div>
-        {prefill && (
-          <div className="text-[12px] text-purple-600 bg-purple-50 rounded-xl px-3 py-2">
-            ข้อมูลดึงจาก CC import · ตรวจสอบและแก้ไขก่อนบันทึก
-          </div>
-        )}
-        <input placeholder="ชื่อรายการ (เช่น iPhone 16, Netflix)" value={form.name}
-          onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="text-[11px] text-gray-500 mb-1">ยอดรวม (บาท)</div>
-            <input type="number" value={form.totalAmount}
-              onChange={e => setForm(v => ({ ...v, totalAmount: e.target.value }))}
-              placeholder={form.monthlyAmount && form.totalInstallments ? (parseFloat(form.monthlyAmount) * parseInt(form.totalInstallments)).toString() : '0'}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-          </div>
-          <div>
-            <div className="text-[11px] text-gray-500 mb-1">ต่อเดือน (บาท)</div>
-            <input type="number" value={form.monthlyAmount}
-              onChange={e => setForm(v => ({ ...v, monthlyAmount: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
-          </div>
+        <div>
+          <div className="text-[11px] text-gray-500 mb-1">ชื่อรายการ</div>
+          <input value={form.description} onChange={e => setForm(v => ({ ...v, description: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-[13px] w-full outline-none" />
+        </div>
+        <div>
+          <div className="text-[11px] text-gray-500 mb-1">ยอดต่องวด (บาท)</div>
+          <input type="number" value={form.amount} onChange={e => setForm(v => ({ ...v, amount: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-[13px] w-full outline-none" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <div className="text-[11px] text-gray-500 mb-1">จำนวนงวดทั้งหมด</div>
-            <input type="number" value={form.totalInstallments}
-              onChange={e => setForm(v => ({ ...v, totalInstallments: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="text-[11px] text-gray-500 mb-1">งวดที่ (ปัจจุบัน)</div>
+            <input type="number" value={form.installmentCurrent} onChange={e => setForm(v => ({ ...v, installmentCurrent: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-[13px] w-full outline-none" />
           </div>
           <div>
-            <div className="text-[11px] text-gray-500 mb-1">ชำระไปแล้ว (งวด)</div>
-            <input type="number" value={form.paidInstallments}
-              onChange={e => setForm(v => ({ ...v, paidInstallments: e.target.value }))}
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+            <div className="text-[11px] text-gray-500 mb-1">งวดทั้งหมด</div>
+            <input type="number" value={form.installmentTotal} onChange={e => setForm(v => ({ ...v, installmentTotal: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-3 text-[13px] w-full outline-none" />
           </div>
         </div>
         <div>
-          <div className="text-[11px] text-gray-500 mb-1">วันที่เริ่ม (งวดที่ 1)</div>
-          <input type="date" value={form.startDate}
-            onChange={e => setForm(v => ({ ...v, startDate: e.target.value }))}
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+          <div className="text-[11px] text-gray-500 mb-1">บัตร</div>
+          <select value={form.cardName} onChange={e => setForm(v => ({ ...v, cardName: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-3 text-[13px] w-full outline-none bg-white">
+            {CARD_OPTIONS.map(c => <option key={c} value={c}>{c || '— ไม่ระบุ —'}</option>)}
+          </select>
         </div>
-        <select value={form.category} onChange={e => setForm(v => ({ ...v, category: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full">
-          {CATEGORIES_EXPENSE.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
         <Button onClick={save}>บันทึก</Button>
       </div>
     </div>
