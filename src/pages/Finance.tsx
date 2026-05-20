@@ -1286,7 +1286,8 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       .toArray()
   , [])
 
-  // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group
+  // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group.
+  // Skip records where current === total (last installment — nothing left to plan).
   const pendingCCItems: (InstPrefill & { key: string })[] = (() => {
     if (!ccInstRecords) return []
     const grouped = new Map<string, FinanceRecord>()
@@ -1296,25 +1297,29 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       const cur = grouped.get(key)
       if (!cur || (r.installmentCurrent ?? 0) > (cur.installmentCurrent ?? 0)) grouped.set(key, r)
     }
-    // Filter out records that already have a matching plan in db.installments
     const result: (InstPrefill & { key: string })[] = []
     for (const [key, r] of grouped) {
+      const current = r.installmentCurrent ?? 1
+      const total = r.installmentTotal ?? 1
+      // Skip last installment — no future months to plan
+      if (current >= total) continue
       const name = cleanInstName(r.description)
       const alreadyLinked = installments.some(i =>
-        i.totalInstallments === r.installmentTotal &&
+        i.totalInstallments === total &&
         i.name.slice(0, 10) === name.slice(0, 10)
       )
       if (alreadyLinked) continue
-      const current = r.installmentCurrent ?? 1
-      const billing = new Date()
-      billing.setDate(1)
+      // Derive billing month from the record's own date (not today),
+      // so importing an April statement correctly starts in April.
+      const [byear, bmonth] = (r.date ?? '').slice(0, 7).split('-').map(Number)
+      const billing = new Date(byear, bmonth - 1, 1)
       billing.setMonth(billing.getMonth() - (current - 1))
       const startDate = billing.toISOString().slice(0, 10)
       result.push({
         key,
         name,
         monthlyAmount: r.amount.toString(),
-        totalInstallments: (r.installmentTotal ?? 1).toString(),
+        totalInstallments: total.toString(),
         paidInstallments: current.toString(),
         startDate,
         cardName: r.cardName,
@@ -1359,22 +1364,24 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       {/* ── CC นำเข้า (pending plans from PDF import) ── */}
       {pendingCCItems.length > 0 && (
         <div className="mb-4">
-          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC (นำเข้าแล้ว — รอสร้างแผน)</div>
+          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC (รอสร้างแผน)</div>
           <div className="flex flex-col gap-2">
             {pendingCCItems.map(item => (
-              <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3 flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-gray-900 truncate">{item.name}</div>
-                  <div className="text-[11px] text-gray-400">
-                    งวดที่ {item.paidInstallments}/{item.totalInstallments} · {formatCurrency(parseFloat(item.monthlyAmount))}/เดือน
-                    {item.cardName && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {item.cardName}</span>}
+              <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-gray-900 truncate">{item.name}</div>
+                    <div className="text-[11px] text-gray-400">
+                      งวดที่ {item.paidInstallments}/{item.totalInstallments} · {formatCurrency(parseFloat(item.monthlyAmount))}/เดือน
+                      {item.cardName && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {item.cardName}</span>}
+                    </div>
                   </div>
                 </div>
                 <button
                   onClick={() => { setEditItem(null); setPrefill(item); setShowForm(true) }}
-                  className="flex-shrink-0 bg-purple-600 text-white text-[12px] font-semibold px-3 py-2 rounded-xl active:scale-95"
+                  className="text-[11px] font-semibold text-purple-600 active:scale-95"
                 >
-                  สร้างแผนผ่อน
+                  + สร้างแผนผ่อนงวดที่เหลือ
                 </button>
               </div>
             ))}
