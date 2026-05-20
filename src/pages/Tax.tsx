@@ -41,9 +41,6 @@ export default function Tax() {
     )
   }
 
-  const breakdown = calcThaiTax(current)
-  const suggestions = suggestUnusedAllowances(current)
-
   const yearOptions: number[] = []
   for (let y = currentBE - 3; y <= currentBE + 1; y++) yearOptions.push(y)
 
@@ -70,7 +67,7 @@ export default function Tax() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'summary' && <SummaryTab record={current} breakdown={breakdown} suggestions={suggestions} onSwitch={setTab} />}
+        {tab === 'summary' && <SummaryTab year={year} onSwitch={setTab} />}
         {tab === 'income' && <IncomeTab record={current} />}
         {tab === 'deductions' && <DeductionsTab record={current} />}
         {tab === 'simulator' && <SimulatorTab record={current} />}
@@ -80,9 +77,15 @@ export default function Tax() {
 }
 
 // ── Summary Tab ────────────────────────────────────────────────────────────
-function SummaryTab({ record, breakdown, suggestions, onSwitch }: {
-  record: TaxRecord; breakdown: ReturnType<typeof calcThaiTax>; suggestions: ReturnType<typeof suggestUnusedAllowances>; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
+function SummaryTab({ year, onSwitch }: {
+  year: number; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
 }) {
+  // Query DB directly so this tab always reacts to the latest saved data
+  const record = useLiveQuery(() => db.taxRecords.where('year').equals(year).first(), [year])
+  if (!record) return null
+  const breakdown = calcThaiTax(record)
+  const suggestions = suggestUnusedAllowances(record)
+
   return (
     <div className="px-4 py-4 space-y-3">
       {/* Hero */}
