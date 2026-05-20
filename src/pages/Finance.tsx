@@ -1402,8 +1402,8 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
   , [])
 
   // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group.
-  // Skip records where current === total (last installment — nothing left to plan).
-  const pendingCCItems: (InstPrefill & { key: string })[] = (() => {
+  // Last installments (current === total) stay in the list but won't get a plan button.
+  const pendingCCItems: (InstPrefill & { key: string; isLast: boolean })[] = (() => {
     if (!ccInstRecords) return []
     const grouped = new Map<string, FinanceRecord>()
     for (const r of ccInstRecords) {
@@ -1412,12 +1412,10 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       const cur = grouped.get(key)
       if (!cur || (r.installmentCurrent ?? 0) > (cur.installmentCurrent ?? 0)) grouped.set(key, r)
     }
-    const result: (InstPrefill & { key: string })[] = []
+    const result: (InstPrefill & { key: string; isLast: boolean })[] = []
     for (const [key, r] of grouped) {
       const current = r.installmentCurrent ?? 1
       const total = r.installmentTotal ?? 1
-      // Skip last installment — no future months to plan
-      if (current >= total) continue
       const name = cleanInstName(r.description)
       const alreadyLinked = installments.some(i =>
         i.totalInstallments === total &&
@@ -1438,6 +1436,7 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
         paidInstallments: current.toString(),
         startDate,
         cardName: r.cardName,
+        isLast: current >= total,
       })
     }
     return result
@@ -1483,21 +1482,24 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
           <div className="flex flex-col gap-2">
             {pendingCCItems.map(item => (
               <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
-                <div className="flex items-center justify-between mb-2">
+                <div className={`flex items-center justify-between ${item.isLast ? '' : 'mb-2'}`}>
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-gray-900 truncate">{item.name}</div>
                     <div className="text-[11px] text-gray-400">
                       งวดที่ {item.paidInstallments}/{item.totalInstallments} · {formatCurrency(parseFloat(item.monthlyAmount))}/เดือน
                       {item.cardName && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${CARD_COLORS[item.cardName] ?? 'bg-gray-100 text-gray-600'}`}>💳 {item.cardName}</span>}
+                      {item.isLast && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">✓ งวดสุดท้าย</span>}
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => { setEditItem(null); setPrefill(item); setShowForm(true) }}
-                  className="text-[11px] font-semibold text-purple-600 active:scale-95"
-                >
-                  + สร้างแผนผ่อนงวดที่เหลือ
-                </button>
+                {!item.isLast && (
+                  <button
+                    onClick={() => { setEditItem(null); setPrefill(item); setShowForm(true) }}
+                    className="text-[11px] font-semibold text-purple-600 active:scale-95"
+                  >
+                    + สร้างแผนผ่อนงวดที่เหลือ
+                  </button>
+                )}
               </div>
             ))}
           </div>
