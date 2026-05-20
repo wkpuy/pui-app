@@ -516,7 +516,7 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
               )}
               {whoop.bloodOxygen !== undefined && (
                 <div className="bg-gray-800 rounded-xl p-2.5 text-center">
-                  <div className="text-[18px] font-bold text-cyan-400">{whoop.bloodOxygen}%</div>
+                  <div className="text-[18px] font-bold text-cyan-400">{Number(whoop.bloodOxygen).toFixed(2)}%</div>
                   <div className="text-[10px] text-gray-400 mt-0.5">SpO₂</div>
                 </div>
               )}
@@ -1243,7 +1243,7 @@ function DailyTab({ daily, onEdit }: { daily: HealthDaily[]; onEdit: (d: HealthD
               { icon: '❤️', label: 'RHR', val: d.restingHeartRate !== undefined ? `${d.restingHeartRate} bpm` : null },
               { icon: '⚡', label: 'Strain', val: d.strain !== undefined ? `${d.strain}` : null },
               { icon: '🫁', label: 'Sleep%', val: d.sleepPerformance !== undefined ? `${d.sleepPerformance}%` : null },
-              { icon: '🩵', label: 'SpO₂', val: d.bloodOxygen !== undefined ? `${d.bloodOxygen}%` : null },
+              { icon: '🩵', label: 'SpO₂', val: d.bloodOxygen !== undefined ? `${Number(d.bloodOxygen).toFixed(2)}%` : null },
             ].filter(x => x.val).map(x => (
               <div key={x.label} className="bg-gray-50 rounded-xl p-2 text-center">
                 <div className="text-base">{x.icon}</div>
