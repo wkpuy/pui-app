@@ -259,7 +259,9 @@ function IncomeTab({ record }: { record: TaxRecord }) {
   const [saved, setSaved] = useState(false)
   const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
 
-  useEffect(() => { setForm(initForm(record, INCOME_FIELDS)); setSaved(false) }, [record.id])
+  // Re-sync form whenever the DB record changes (id or updatedAt) so the next
+  // edit starts from the latest saved state.
+  useEffect(() => { setForm(initForm(record, INCOME_FIELDS)); setSaved(false) }, [record.id, record.updatedAt])
 
   async function handleSave() {
     await saveForm(record, form, [])
@@ -296,7 +298,7 @@ function DeductionsTab({ record }: { record: TaxRecord }) {
   const [saved, setSaved] = useState(false)
   const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
 
-  useEffect(() => { setForm(initForm(record, DEDUCTION_FIELDS)); setSaved(false) }, [record.id])
+  useEffect(() => { setForm(initForm(record, DEDUCTION_FIELDS)); setSaved(false) }, [record.id, record.updatedAt])
 
   async function handleSave() {
     await saveForm(record, form, INT_FIELDS)
