@@ -476,8 +476,6 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
     try {
       let added = 0
       let skipped = 0
-      let instAdded = 0
-      let instUpdated = 0
 
       // Single transaction covering both financeRecords + installments
       await db.transaction('rw', [db.financeRecords, db.installments], async () => {
@@ -505,57 +503,14 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
           added++
         }
 
-        // Auto-create/update installments from transactions with installmentInfo
-        const instTxns = toSave.filter(t => t.installmentInfo && Math.abs(t.amount) > 0)
-        const allInst = await db.installments.toArray()
-        for (const txn of instTxns) {
-          const { current, total } = txn.installmentInfo!
-          const cleanName = txn.description
-            .replace(/^\d{2,3}\/\d{2,3}\s+/, '')
-            .replace(/\s*:?\s*\d{2,3}\/\d{2,3}\s*$/, '')
-            .replace(/\s+INT\d+\.?\d*%/i, '')
-            .trim() || txn.description
-
-          const existing = allInst.find(i =>
-            i.totalInstallments === total &&
-            (i.name.slice(0, 12) === cleanName.slice(0, 12) || cleanName.slice(0, 12) === i.name.slice(0, 12))
-          )
-
-          // Compute startDate = month when installment 1 was first charged.
-          // Use today as the billing month (user imports PDF in the same month it's billed).
-          // installment 1 month = today - (current - 1) months
-          const billingBase = new Date()
-          billingBase.setDate(1)
-          billingBase.setMonth(billingBase.getMonth() - (current - 1))
-          const instStartDate = billingBase.toISOString().slice(0, 10)
-
-          if (!existing) {
-            await db.installments.add({
-              name: cleanName,
-              totalAmount: Math.abs(txn.amount) * total,
-              monthlyAmount: Math.abs(txn.amount),
-              totalInstallments: total,
-              paidInstallments: current,
-              startDate: instStartDate,
-              category: txn.category || 'ช้อปปิ้ง',
-              source: 'credit_card',
-              cardName: bankName,
-            })
-            instAdded++
-          } else if (existing.paidInstallments < current) {
-            await db.installments.update(existing.id!, { paidInstallments: current, startDate: instStartDate })
-            instUpdated++
-          }
-        }
       })
 
       setImportState(null)
-      const instNote = instAdded > 0 ? ` · เพิ่มผ่อน ${instAdded} รายการ` : instUpdated > 0 ? ` · อัปเดตผ่อน ${instUpdated}` : ''
       setToast({
         text: added > 0
-          ? `บันทึก ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}${instNote}`
-          : `ทั้งหมดเป็นรายการซ้ำ (${skipped})${instNote}`,
-        type: added > 0 || instAdded > 0 ? 'success' : 'error',
+          ? `บันทึก ${added} รายการ${skipped > 0 ? ` (ข้าม ${skipped} ซ้ำ)` : ''}`
+          : `ทั้งหมดเป็นรายการซ้ำ (${skipped})`,
+        type: added > 0 ? 'success' : 'error',
       })
     } catch (e: any) {
       console.error('saveImport error:', e)
@@ -1343,14 +1298,6 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
                 <div className="text-[11px] text-gray-400 mt-1">
                   {inst.paidInstallments}/{inst.totalInstallments} งวด · รวม {formatCurrency(inst.totalAmount)}
                 </div>
-                {!isDone && (
-                  <button
-                    onClick={() => db.installments.update(inst.id!, { paidInstallments: inst.paidInstallments + 1 })}
-                    className="mt-2 text-[12px] font-semibold text-indigo-600 active:scale-95"
-                  >
-                    + บันทึกชำระงวดถัดไป
-                  </button>
-                )}
               </div>
             )
           })}
