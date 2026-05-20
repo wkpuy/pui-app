@@ -594,7 +594,12 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         const existingKeys = new Set(allCCRecords.map(r => `${r.date}|${r.amount}|${r.description}`))
 
         for (const txn of toSave) {
-          const date = txn.transDate || fallbackDate
+          // Installment transactions belong to the billing month chosen at the
+          // top of the page (not the original purchase date — previous
+          // installments are considered already paid).
+          const date = txn.installmentInfo
+            ? `${month}-15`
+            : (txn.transDate || fallbackDate)
           const amount = Math.abs(txn.amount)
           const description = txn.description || '(ไม่ระบุ)'
           const key = `${date}|${amount}|${description}`
