@@ -67,7 +67,9 @@ export default function Tax() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'summary' && <SummaryTab key={current.id} record={current} onSwitch={setTab} />}
+        <div className={tab === 'summary' ? '' : 'hidden'}>
+          <SummaryTab record={current} onSwitch={setTab} />
+        </div>
         {tab === 'income' && <IncomeTab key={current.id} record={current} />}
         {tab === 'deductions' && <DeductionsTab key={current.id} record={current} />}
         {tab === 'simulator' && <SimulatorTab key={current.id} record={current} />}
@@ -77,11 +79,9 @@ export default function Tax() {
 }
 
 // ── Summary Tab ────────────────────────────────────────────────────────────
-function SummaryTab({ record: fallback, onSwitch }: {
+function SummaryTab({ record, onSwitch }: {
   record: TaxRecord; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
 }) {
-  const fresh = useLiveQuery(() => db.taxRecords.get(fallback.id!), [fallback.id])
-  const record = fresh ?? fallback
   const breakdown = calcThaiTax(record)
   const suggestions = suggestUnusedAllowances(record)
 
