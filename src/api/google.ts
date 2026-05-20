@@ -131,9 +131,10 @@ export function parseDividendEvents(events: any[]): ParsedDividendEvent[] {
     })
 }
 
-// sinceDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
-export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string) {
-  const timeFilter = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
+// sinceDate: YYYY/MM/DD, beforeDate: YYYY/MM/DD (Gmail format). If omitted → 7 days back.
+export async function fetchGmailBankMessages(accessToken: string, sinceDate?: string, beforeDate?: string) {
+  const afterPart = sinceDate ? `after:${sinceDate}` : `after:${toGmailDate(Date.now() - 7 * 24 * 3600 * 1000)}`
+  const timeFilter = beforeDate ? `${afterPart} before:${beforeDate}` : afterPart
   // KPLUS: "Funds Transfer" / "Bill Payment". BBL: "ยืนยันการชำระเงิน" / "ยืนยันการโอนเงิน"
   const query = encodeURIComponent(
     `((from:KPLUS@kasikornbank.com subject:("Funds Transfer" OR "Bill Payment")) OR (from:BualuangmBanking@bangkokbank.com subject:("ยืนยันการชำระเงิน" OR "ยืนยันการโอนเงิน"))) ${timeFilter}`

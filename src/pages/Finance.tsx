@@ -362,7 +362,9 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       const recat = await recategorize()
       const { fetchGmailBankMessages, parseBankEmail } = await import('../api/google')
       const sinceDate = month.replace('-', '/') + '/01'
-      const messages = await fetchGmailBankMessages(tokens.accessToken, sinceDate)
+      const [sy, sm] = month.split('-').map(Number)
+      const nextMonth = sm === 12 ? `${sy + 1}/01/01` : `${sy}/${String(sm + 1).padStart(2, '0')}/01`
+      const messages = await fetchGmailBankMessages(tokens.accessToken, sinceDate, nextMonth)
       let added = 0, skipped = 0
       const unparsedFroms: string[] = []
       const debugFailed: { subject: string; from: string; body: string; amount: number }[] = []
