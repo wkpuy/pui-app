@@ -179,7 +179,14 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
   onDone: (text: string) => void
 }) {
   const ccInstallments = installments.filter(i => i.source === 'credit_card')
-  const ccPendingCount = monthRecords.filter(r => !!r.installmentTotal).length
+
+  // CC pending records across ALL months (matches what shows in ผ่อน tab pending section)
+  const allCCPending = useLiveQuery(() =>
+    db.financeRecords.where('source').equals('credit_card')
+      .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1)
+      .toArray()
+  , [])
+  const ccPendingCount = allCCPending?.length ?? 0
 
   const [optRecords, setOptRecords] = useState(monthRecords.length > 0)
   const [optInstallments, setOptInstallments] = useState(false)
@@ -197,12 +204,12 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
       await db.installments.bulkDelete(ccInstallments.map(i => i.id!))
       parts.push(`แผนผ่อน CC ${ccInstallments.length}`)
     }
-    if (optPending && ccPendingCount > 0) {
-      const pending = monthRecords.filter(r => !!r.installmentTotal)
-      for (const r of pending) {
+    if (optPending && allCCPending && allCCPending.length > 0) {
+      // Clear installment markers from ALL CC pending records (across all months)
+      for (const r of allCCPending) {
         await db.financeRecords.update(r.id!, { installmentCurrent: undefined, installmentTotal: undefined })
       }
-      parts.push(`pending CC ${pending.length}`)
+      parts.push(`pending CC ${allCCPending.length}`)
     }
     setBusy(false)
     onDone(parts.length > 0 ? `ลบ ${parts.join(' + ')} แล้ว` : 'ไม่มีรายการให้ลบ')
@@ -250,8 +257,8 @@ function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }
             onChange={e => setOptPending(e.target.checked)}
             className="w-5 h-5 accent-red-500" />
           <div className="flex-1">
-            <div className="text-[14px] font-semibold text-gray-900">รายการ CC pending (เคลียร์ข้อมูลงวด)</div>
-            <div className="text-[12px] text-gray-500">{ccPendingCount} รายการของเดือนนี้</div>
+            <div className="text-[14px] font-semibold text-gray-900">รายการ CC pending (เคลียร์ข้อมูลงวดทุกเดือน)</div>
+            <div className="text-[12px] text-gray-500">{ccPendingCount} รายการ (ทุกเดือนรวมกัน)</div>
           </div>
         </label>
 
