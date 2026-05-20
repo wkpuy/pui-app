@@ -1239,10 +1239,45 @@ interface InstPrefill {
   cardName?: string
 }
 
+// Parse installment notation from CC description: "02/10 NAME" or "NAME 02/10"
+function parseInstFromDesc(desc: string): { current: number; total: number } | null {
+  const m = desc.match(/^(\d{2,3})\/(\d{2,3})\s/) || desc.match(/\s(\d{2,3})\/(\d{2,3})$/) || desc.match(/:?\s*(\d{2,3})\/(\d{2,3})/)
+  if (!m) return null
+  const current = parseInt(m[1])
+  const total = parseInt(m[2])
+  if (current < 1 || total < 2 || current > total || total > 120) return null
+  return { current, total }
+}
+
 function InstallmentsTab({ installments }: { installments: Installment[] }) {
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Installment | null>(null)
   const [prefill, setPrefill] = useState<InstPrefill | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<string | null>(null)
+
+  async function backfillCCInstallments() {
+    setScanning(true)
+    setScanResult(null)
+    try {
+      const ccRecords = await db.financeRecords.where('source').equals('credit_card')
+        .filter(r => !r.installmentTotal)
+        .toArray()
+      let updated = 0
+      for (const r of ccRecords) {
+        const parsed = parseInstFromDesc(r.description ?? '')
+        if (!parsed) continue
+        await db.financeRecords.update(r.id!, {
+          installmentCurrent: parsed.current,
+          installmentTotal: parsed.total,
+        })
+        updated++
+      }
+      setScanResult(updated > 0 ? `พบ ${updated} รายการผ่อน` : 'ไม่พบรายการใหม่')
+    } finally {
+      setScanning(false)
+    }
+  }
 
   // CC financeRecords that carry installment info (imported from PDF)
   const ccInstRecords = useLiveQuery(() =>
@@ -1307,6 +1342,18 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
           className="bg-indigo-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95">
           ＋ เพิ่ม
         </button>
+      </div>
+
+      {/* ── Scan button for old CC records ── */}
+      <div className="flex items-center gap-2 mb-3">
+        <button
+          onClick={backfillCCInstallments}
+          disabled={scanning}
+          className="flex-1 bg-purple-50 border border-purple-200 text-purple-700 text-[12px] font-semibold px-3 py-2 rounded-xl active:scale-95 disabled:opacity-50"
+        >
+          {scanning ? '⏳ กำลังสแกน...' : '🔍 สแกนรายการผ่อน CC เก่า'}
+        </button>
+        {scanResult && <span className="text-[12px] text-purple-600 font-semibold">{scanResult}</span>}
       </div>
 
       {/* ── CC นำเข้า (pending plans from PDF import) ── */}
