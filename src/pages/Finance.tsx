@@ -107,8 +107,8 @@ export default function Finance() {
       </div>
 
       {/* Tabs */}
-      <div className="relative bg-white border-b border-gray-100">
-        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
+      <div className="relative bg-white border-b border-gray-100 flex items-center">
+        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden flex-1">
           {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อน'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-shrink-0 px-3 py-3 text-[12px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400'}`}>
@@ -116,7 +116,16 @@ export default function Finance() {
             </button>
           ))}
         </div>
-        <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
+        {(tab === 'overview' || tab === 'records') && monthRecords.length > 0 && (
+          <button
+            onClick={async () => {
+              if (!confirm(`ลบรายการทั้งหมด ${monthRecords.length} รายการของเดือนนี้?\nไม่สามารถกู้คืนได้`)) return
+              await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
+            }}
+            className="flex-shrink-0 px-3 py-3 text-red-400 text-[16px] border-b-2 border-transparent">
+            🗑️
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
