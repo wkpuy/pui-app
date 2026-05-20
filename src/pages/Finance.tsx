@@ -119,8 +119,10 @@ export default function Finance() {
         {(tab === 'overview' || tab === 'records') && monthRecords.length > 0 && (
           <button
             onClick={async () => {
-              if (!confirm(`ลบรายการทั้งหมด ${monthRecords.length} รายการของเดือนนี้?\nไม่สามารถกู้คืนได้`)) return
+              if (!confirm(`ลบรายการทั้งหมด ${monthRecords.length} รายการของเดือนนี้ รวมถึงแผนผ่อน CC ทั้งหมด?\nไม่สามารถกู้คืนได้`)) return
+              const ccInst = await db.installments.where('source').equals('credit_card').toArray()
               await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
+              await db.installments.bulkDelete(ccInst.map(i => i.id!))
             }}
             className="flex-shrink-0 px-3 py-3 text-red-400 text-[16px] border-b-2 border-transparent">
             🗑️
