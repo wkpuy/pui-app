@@ -598,21 +598,63 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
         )
       })()}
 
-      {/* Calories & Steps & Distance Focus */}
+      {/* REM Sleep Focus */}
+      {(() => {
+        const recent = (allDaily ?? []).filter((d: any) => (d.sleepRem ?? 0) > 0).slice(0, 30)
+        if (recent.length === 0) return null
+        const avgRem = recent.reduce((s: number, d: any) => s + d.sleepRem, 0) / recent.length
+        const withTotal = recent.filter((d: any) => d.sleepTotal)
+        const avgTotal = withTotal.length ? withTotal.reduce((s: number, d: any) => s + d.sleepTotal, 0) / withTotal.length : 0
+        const remPct = avgTotal > 0 ? Math.round((avgRem / avgTotal) * 100) : 0
+        const latest = recent[0]
+        const latestPct = latest.sleepTotal > 0 ? Math.round((latest.sleepRem / latest.sleepTotal) * 100) : 0
+        const isOptimal = avgRem >= 1.5 && remPct >= 20
+        const isGood = avgRem >= 1.2 && remPct >= 15
+        const statusColor = isOptimal ? 'text-green-600' : isGood ? 'text-amber-500' : 'text-red-500'
+        const statusBg = isOptimal ? 'bg-green-50' : isGood ? 'bg-amber-50' : 'bg-red-50'
+        const statusLabel = isOptimal ? '✅ Optimal Longevity' : isGood ? '⚠️ พอใช้' : '❌ ต่ำกว่าเกณฑ์'
+        return (
+          <div className="mx-4 mt-3">
+            <Card>
+              <div className="flex items-center justify-between mb-2">
+                <CardTitle>💫 REM Sleep</CardTitle>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${statusBg} ${statusColor}`}>{statusLabel}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="text-center">
+                  <div className="text-[20px] font-bold text-gray-900">{avgRem.toFixed(1)}</div>
+                  <div className="text-[10px] text-gray-400">ชม. เฉลี่ย/คืน</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-[20px] font-bold ${statusColor}`}>{remPct}%</div>
+                  <div className="text-[10px] text-gray-400">% ของ sleep รวม</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[20px] font-bold text-purple-600">{latestPct}%</div>
+                  <div className="text-[10px] text-gray-400">คืนล่าสุด</div>
+                  <div className="text-[9px] text-gray-400 mt-0.5">{latest.date.slice(5)}</div>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-2.5 text-[11px] text-gray-500">
+                <div className="font-semibold text-gray-700 mb-1">เกณฑ์ Longevity</div>
+                <div className="flex justify-between"><span>Optimal</span><span className="text-green-600 font-semibold">≥1.5 ชม. และ ≥20%</span></div>
+                <div className="flex justify-between mt-0.5"><span>Good</span><span className="text-amber-500 font-semibold">≥1.2 ชม. และ ≥15%</span></div>
+              </div>
+            </Card>
+          </div>
+        )
+      })()}
+
+      {/* Calories & Distance Focus */}
       {(() => {
         const recent = (allDaily ?? []).slice(0, 30)
         const withCal = recent.filter((d: any) => d.caloriesBurned)
-        const withSteps = recent.filter((d: any) => d.steps)
         const withDist = recent.filter((d: any) => d.distanceKm)
         const avgCal = withCal.length ? Math.round(withCal.reduce((s: number, d: any) => s + d.caloriesBurned, 0) / withCal.length) : null
-        const avgSteps = withSteps.length ? Math.round(withSteps.reduce((s: number, d: any) => s + d.steps, 0) / withSteps.length) : null
         const avgDist = withDist.length ? Math.round(withDist.reduce((s: number, d: any) => s + d.distanceKm, 0) / withDist.length * 10) / 10 : null
         const latestCalRec = withCal[0] ?? null
-        const latestStepsRec = withSteps[0] ?? null
         const latestDistRec = withDist[0] ?? null
-        const stepsOptimal = avgSteps !== null && avgSteps >= 8000
-        const stepsGood = avgSteps !== null && avgSteps >= 6000
-        if (avgCal === null && avgSteps === null && avgDist === null) return null
+        if (avgCal === null && avgDist === null) return null
         return (
           <div className="mx-4 mt-3">
             <div className="grid grid-cols-2 gap-3">
@@ -624,22 +666,6 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
                   <div className="mt-2 pt-2 border-t border-gray-100">
                     <div className="text-[11px] text-gray-500">เฉลี่ย 30 วัน</div>
                     <div className="text-[14px] font-bold text-gray-700">{avgCal} cal</div>
-                  </div>
-                </Card>
-              )}
-              {avgSteps !== null && (
-                <Card>
-                  <div className="text-[12px] font-bold text-gray-500 mb-1">👣 Steps/วัน</div>
-                  <div className={`text-[22px] font-bold ${stepsOptimal ? 'text-green-600' : stepsGood ? 'text-amber-500' : 'text-red-500'}`}>
-                    {(latestStepsRec?.steps ?? avgSteps).toLocaleString()}
-                  </div>
-                  <div className="text-[10px] text-gray-400">ล่าสุด (ก้าว){latestStepsRec ? ` · ${latestStepsRec.date.slice(5)}` : ''}</div>
-                  <div className="mt-2 pt-2 border-t border-gray-100">
-                    <div className="text-[11px] text-gray-500">เฉลี่ย 30 วัน</div>
-                    <div className="text-[14px] font-bold text-gray-700">{avgSteps.toLocaleString()}</div>
-                    <div className={`text-[10px] font-semibold mt-0.5 ${stepsOptimal ? 'text-green-600' : stepsGood ? 'text-amber-500' : 'text-red-500'}`}>
-                      {stepsOptimal ? '✅ ≥8,000 ก้าว' : stepsGood ? '⚠️ ≥6,000 ก้าว' : '❌ <6,000 ก้าว'}
-                    </div>
                   </div>
                 </Card>
               )}

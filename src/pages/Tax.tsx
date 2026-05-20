@@ -77,9 +77,11 @@ export default function Tax() {
 }
 
 // ── Summary Tab ────────────────────────────────────────────────────────────
-function SummaryTab({ record, onSwitch }: {
+function SummaryTab({ record: fallback, onSwitch }: {
   record: TaxRecord; onSwitch: (t: 'summary' | 'income' | 'deductions' | 'simulator') => void
 }) {
+  const fresh = useLiveQuery(() => db.taxRecords.get(fallback.id!), [fallback.id])
+  const record = fresh ?? fallback
   const breakdown = calcThaiTax(record)
   const suggestions = suggestUnusedAllowances(record)
 

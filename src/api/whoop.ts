@@ -171,14 +171,14 @@ export async function fetchWhoopData(tokens: WhoopTokens, days = 90): Promise<Wh
     }
     if (s.score?.stage_summary) {
       const ss = s.score.stage_summary
-      d.sleepDeep = millisToHours(ss.total_slow_wave_sleep_time_milli ?? 0)
-      d.sleepRem = millisToHours(ss.total_rem_sleep_time_milli ?? 0)
-      d.sleepLight = millisToHours(ss.total_light_sleep_time_milli ?? 0)
-      d.sleepTotal = millisToHours(
-        (ss.total_slow_wave_sleep_time_milli ?? 0) +
-        (ss.total_rem_sleep_time_milli ?? 0) +
-        (ss.total_light_sleep_time_milli ?? 0)
-      )
+      const deepMs = ss.total_slow_wave_sleep_time_milli ?? 0
+      const remMs = ss.total_rem_sleep_time_milli ?? 0
+      const lightMs = ss.total_light_sleep_time_milli ?? 0
+      const totalMs = deepMs + remMs + lightMs
+      d.sleepDeep = deepMs > 0 ? millisToHours(deepMs) : undefined
+      d.sleepRem = remMs > 0 ? millisToHours(remMs) : undefined
+      d.sleepLight = lightMs > 0 ? millisToHours(lightMs) : undefined
+      d.sleepTotal = totalMs > 0 ? millisToHours(totalMs) : undefined
     }
   }
 
