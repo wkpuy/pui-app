@@ -144,7 +144,7 @@ export default function Finance() {
           />
         )}
         {tab === 'yearly' && <YearlyTab records={records ?? []} />}
-        {tab === 'installments' && <InstallmentsTab installments={installments ?? []} />}
+        {tab === 'installments' && <InstallmentsTab installments={installments ?? []} month={month} />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'budget' && <BudgetTab month={month} />}
       </div>
@@ -1364,7 +1364,7 @@ function parseInstFromDesc(desc: string): { current: number; total: number } | n
   return { current, total }
 }
 
-function InstallmentsTab({ installments }: { installments: Installment[] }) {
+function InstallmentsTab({ installments, month }: { installments: Installment[]; month: string }) {
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Installment | null>(null)
   const [prefill, setPrefill] = useState<InstPrefill | null>(null)
@@ -1394,12 +1394,13 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
     }
   }
 
-  // CC financeRecords that carry installment info (imported from PDF)
+  // CC financeRecords with installment info, scoped to the selected month
+  // (date was set to the chosen import month, so this filters by the month picker)
   const ccInstRecords = useLiveQuery(() =>
     db.financeRecords.where('source').equals('credit_card')
-      .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1)
+      .filter(r => !!r.installmentTotal && (r.installmentTotal ?? 0) > 1 && r.date.startsWith(month))
       .toArray()
-  , [])
+  , [month])
 
   // Group by (cleanName | totalInstallments), keep highest installmentCurrent per group.
   // Last installments (current === total) stay in the list but won't get a plan button.
@@ -1478,7 +1479,7 @@ function InstallmentsTab({ installments }: { installments: Installment[] }) {
       {/* ── CC นำเข้า (pending plans from PDF import) ── */}
       {pendingCCItems.length > 0 && (
         <div className="mb-4">
-          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC (รอสร้างแผน)</div>
+          <div className="text-[12px] font-bold text-purple-700 mb-2">💳 รายการผ่อน CC ของเดือน {month.slice(5)}/{month.slice(2, 4)}</div>
           <div className="flex flex-col gap-2">
             {pendingCCItems.map(item => (
               <div key={item.key} className="bg-purple-50 border border-purple-100 rounded-2xl p-3">
