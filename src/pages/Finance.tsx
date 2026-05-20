@@ -75,6 +75,8 @@ export default function Finance() {
   const [showForm, setShowForm] = useState(false)
   const [editRecord, setEditRecord] = useState<FinanceRecord | null>(null)
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteToast, setDeleteToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const records = useLiveQuery(() => db.financeRecords.orderBy('date').reverse().toArray())
   const installments = useLiveQuery(() => db.installments.orderBy('startDate').reverse().toArray())
@@ -116,20 +118,10 @@ export default function Finance() {
             </button>
           ))}
         </div>
-        {(tab === 'overview' || tab === 'records' || tab === 'installments') &&
-          (monthRecords.length > 0 || (installments ?? []).some(i => i.source === 'credit_card')) && (
+        {(tab === 'overview' || tab === 'records' || tab === 'installments') && (
           <button
-            onClick={async () => {
-              const ccInst = await db.installments.where('source').equals('credit_card').toArray()
-              const msg = [
-                monthRecords.length > 0 ? `รายการ ${monthRecords.length} รายการของเดือนนี้` : '',
-                ccInst.length > 0 ? `แผนผ่อน CC ${ccInst.length} รายการ` : '',
-              ].filter(Boolean).join(' + ')
-              if (!confirm(`ลบ ${msg}?\nไม่สามารถกู้คืนได้`)) return
-              if (monthRecords.length > 0) await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
-              if (ccInst.length > 0) await db.installments.bulkDelete(ccInst.map(i => i.id!))
-            }}
-            className="flex-shrink-0 px-3 py-3 text-red-400 text-[16px] border-b-2 border-transparent">
+            onClick={() => setShowDeleteModal(true)}
+            className="flex-shrink-0 px-3 py-3 text-red-400 text-[16px] border-b-2 border-transparent active:scale-90">
             🗑️
           </button>
         )}
@@ -163,6 +155,117 @@ export default function Finance() {
           onClose={() => { setShowForm(false); setEditRecord(null) }}
         />
       )}
+
+      {showDeleteModal && (
+        <DeleteScopeModal
+          month={month}
+          monthRecords={monthRecords}
+          installments={installments ?? []}
+          onClose={() => setShowDeleteModal(false)}
+          onDone={(text) => { setShowDeleteModal(false); setDeleteToast({ text, type: 'success' }) }}
+        />
+      )}
+
+      <Toast message={deleteToast?.text ?? null} type={deleteToast?.type} onDone={() => setDeleteToast(null)} />
+    </div>
+  )
+}
+
+function DeleteScopeModal({ month, monthRecords, installments, onClose, onDone }: {
+  month: string
+  monthRecords: FinanceRecord[]
+  installments: Installment[]
+  onClose: () => void
+  onDone: (text: string) => void
+}) {
+  const ccInstallments = installments.filter(i => i.source === 'credit_card')
+  const ccPendingCount = monthRecords.filter(r => !!r.installmentTotal).length
+
+  const [optRecords, setOptRecords] = useState(monthRecords.length > 0)
+  const [optInstallments, setOptInstallments] = useState(false)
+  const [optPending, setOptPending] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  async function doDelete() {
+    setBusy(true)
+    const parts: string[] = []
+    if (optRecords && monthRecords.length > 0) {
+      await db.financeRecords.bulkDelete(monthRecords.map(r => r.id!))
+      parts.push(`รายการเดือนนี้ ${monthRecords.length}`)
+    }
+    if (optInstallments && ccInstallments.length > 0) {
+      await db.installments.bulkDelete(ccInstallments.map(i => i.id!))
+      parts.push(`แผนผ่อน CC ${ccInstallments.length}`)
+    }
+    if (optPending && ccPendingCount > 0) {
+      const pending = monthRecords.filter(r => !!r.installmentTotal)
+      for (const r of pending) {
+        await db.financeRecords.update(r.id!, { installmentCurrent: undefined, installmentTotal: undefined })
+      }
+      parts.push(`pending CC ${pending.length}`)
+    }
+    setBusy(false)
+    onDone(parts.length > 0 ? `ลบ ${parts.join(' + ')} แล้ว` : 'ไม่มีรายการให้ลบ')
+  }
+
+  const monthLabel = month.slice(5) + '/' + month.slice(2, 4)
+  const canDelete = (optRecords && monthRecords.length > 0)
+    || (optInstallments && ccInstallments.length > 0)
+    || (optPending && ccPendingCount > 0)
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-bold text-gray-900">🗑️ ลบรายการ</h3>
+          <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
+        </div>
+
+        <div className="text-[12px] text-red-500 bg-red-50 rounded-xl px-3 py-2 mb-3">
+          ⚠️ ลบแล้วกู้คืนไม่ได้ — เลือกสิ่งที่ต้องการลบ
+        </div>
+
+        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-2 cursor-pointer ${monthRecords.length === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
+          <input type="checkbox" checked={optRecords} disabled={monthRecords.length === 0}
+            onChange={e => setOptRecords(e.target.checked)}
+            className="w-5 h-5 accent-red-500" />
+          <div className="flex-1">
+            <div className="text-[14px] font-semibold text-gray-900">รายการรับ-จ่ายเดือน {monthLabel}</div>
+            <div className="text-[12px] text-gray-500">{monthRecords.length} รายการ</div>
+          </div>
+        </label>
+
+        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-2 cursor-pointer ${ccInstallments.length === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
+          <input type="checkbox" checked={optInstallments} disabled={ccInstallments.length === 0}
+            onChange={e => setOptInstallments(e.target.checked)}
+            className="w-5 h-5 accent-red-500" />
+          <div className="flex-1">
+            <div className="text-[14px] font-semibold text-gray-900">แผนผ่อน CC ทั้งหมด</div>
+            <div className="text-[12px] text-gray-500">{ccInstallments.length} แผน</div>
+          </div>
+        </label>
+
+        <label className={`flex items-center gap-3 px-3 py-3 rounded-xl mb-4 cursor-pointer ${ccPendingCount === 0 ? 'opacity-40' : 'bg-gray-50 active:bg-gray-100'}`}>
+          <input type="checkbox" checked={optPending} disabled={ccPendingCount === 0}
+            onChange={e => setOptPending(e.target.checked)}
+            className="w-5 h-5 accent-red-500" />
+          <div className="flex-1">
+            <div className="text-[14px] font-semibold text-gray-900">รายการ CC pending (เคลียร์ข้อมูลงวด)</div>
+            <div className="text-[12px] text-gray-500">{ccPendingCount} รายการของเดือนนี้</div>
+          </div>
+        </label>
+
+        <div className="flex gap-2">
+          <button onClick={onClose} disabled={busy}
+            className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:scale-95 disabled:opacity-50">
+            ยกเลิก
+          </button>
+          <button onClick={doDelete} disabled={!canDelete || busy}
+            className="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95 disabled:opacity-40">
+            {busy ? 'กำลังลบ...' : 'ลบ'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
