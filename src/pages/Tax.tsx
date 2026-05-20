@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
@@ -204,63 +204,145 @@ function SummaryTab({ year, onSwitch }: {
   )
 }
 
-// ── Income Tab ─────────────────────────────────────────────────────────────
-function IncomeTab({ record }: { record: TaxRecord }) {
+// ── helpers ────────────────────────────────────────────────────────────────
+type FormState = Partial<Record<keyof TaxRecord, string>>
+
+function numVal(s: string | undefined, intOnly?: boolean) {
+  if (!s && s !== '0') return undefined
+  const v = intOnly ? parseInt(s) : parseFloat(s)
+  return isNaN(v) ? undefined : v
+}
+
+function initForm(record: TaxRecord, fields: (keyof TaxRecord)[]): FormState {
+  const f: FormState = {}
+  for (const k of fields) f[k] = (record[k] as number | undefined)?.toString() ?? ''
+  return f
+}
+
+async function saveForm(record: TaxRecord, form: FormState, intOnlyFields: (keyof TaxRecord)[]) {
+  const patch: Partial<TaxRecord> = { updatedAt: new Date().toISOString() }
+  for (const [k, v] of Object.entries(form) as [keyof TaxRecord, string][]) {
+    const intOnly = intOnlyFields.includes(k)
+    const parsed = numVal(v, intOnly)
+    ;(patch as any)[k] = parsed ?? 0
+  }
+  await db.taxRecords.update(record.id!, patch)
+}
+
+function Field({ label, help, value, onChange }: {
+  label: string; help?: string; value: string; onChange: (v: string) => void
+}) {
   return (
-    <div className="px-4 py-4 space-y-3">
+    <div className="mb-2.5">
+      <div className="text-[12px] font-semibold text-gray-600 mb-0.5">{label}</div>
+      {help && <div className="text-[10px] text-gray-400 mb-1">{help}</div>}
+      <input type="number" value={value} onChange={e => onChange(e.target.value)}
+        placeholder="0" className="border border-gray-200 rounded-xl px-3 py-2 text-sm w-full" />
+    </div>
+  )
+}
+
+function SaveButton({ onSave, saved }: { onSave: () => void; saved: boolean }) {
+  return (
+    <button onClick={onSave}
+      className={`w-full py-3.5 rounded-2xl text-[15px] font-bold transition-colors ${saved ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white active:scale-95'}`}>
+      {saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
+    </button>
+  )
+}
+
+// ── Income Tab ─────────────────────────────────────────────────────────────
+const INCOME_FIELDS: (keyof TaxRecord)[] = ['totalIncome', 'bonus', 'otherIncome', 'withholdingTax']
+
+function IncomeTab({ record }: { record: TaxRecord }) {
+  const [form, setForm] = useState(() => initForm(record, INCOME_FIELDS))
+  const [saved, setSaved] = useState(false)
+  const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
+
+  useEffect(() => { setForm(initForm(record, INCOME_FIELDS)); setSaved(false) }, [record.id])
+
+  async function handleSave() {
+    await saveForm(record, form, [])
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="px-4 py-4 space-y-3 pb-8">
       <Card>
         <CardTitle>รายได้</CardTitle>
-        <div className="text-[11px] text-gray-400 mt-1 mb-3">
-          ดึงอัตโนมัติจากหน้าเงินเดือน · แก้ได้
-        </div>
-        <NumField record={record} field="totalIncome" label="เงินเดือนรวมทั้งปี" help="40(1) เงินได้จากการจ้างงาน" />
-        <NumField record={record} field="bonus" label="โบนัส" help="โบนัสประจำปี / เงินพิเศษ" />
-        <NumField record={record} field="otherIncome" label="รายได้อื่น" help="Freelance, ปันผล, ดอกเบี้ย" />
-        <NumField record={record} field="withholdingTax" label="ภาษีหัก ณ ที่จ่าย" help="ที่ถูกหักไปแล้วจากเงินเดือน" />
+        <div className="text-[11px] text-gray-400 mt-1 mb-3">ดึงอัตโนมัติจากหน้าเงินเดือน · แก้ได้</div>
+        <Field label="เงินเดือนรวมทั้งปี" help="40(1) เงินได้จากการจ้างงาน" value={form.totalIncome ?? ''} onChange={set('totalIncome')} />
+        <Field label="โบนัส" help="โบนัสประจำปี / เงินพิเศษ" value={form.bonus ?? ''} onChange={set('bonus')} />
+        <Field label="รายได้อื่น" help="Freelance, ปันผล, ดอกเบี้ย" value={form.otherIncome ?? ''} onChange={set('otherIncome')} />
+        <Field label="ภาษีหัก ณ ที่จ่าย" help="ที่ถูกหักไปแล้วจากเงินเดือน" value={form.withholdingTax ?? ''} onChange={set('withholdingTax')} />
       </Card>
+      <SaveButton onSave={handleSave} saved={saved} />
     </div>
   )
 }
 
 // ── Deductions Tab ─────────────────────────────────────────────────────────
+const DEDUCTION_FIELDS: (keyof TaxRecord)[] = [
+  'spouseAllowance', 'childrenCount', 'childrenAfter2561', 'parentsCount',
+  'lifeInsurance', 'healthInsurance', 'parentsHealthInsurance', 'pensionInsurance', 'socialSecurity',
+  'pvdContribution', 'rmf', 'ssf', 'thaiEsg',
+  'mortgageInterest', 'easyEReceipt', 'donation', 'donationEducation', 'donationPolitical',
+]
+const INT_FIELDS: (keyof TaxRecord)[] = ['childrenCount', 'childrenAfter2561', 'parentsCount']
+
 function DeductionsTab({ record }: { record: TaxRecord }) {
+  const [form, setForm] = useState(() => initForm(record, DEDUCTION_FIELDS))
+  const [saved, setSaved] = useState(false)
+  const set = (k: keyof TaxRecord) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setSaved(false) }
+
+  useEffect(() => { setForm(initForm(record, DEDUCTION_FIELDS)); setSaved(false) }, [record.id])
+
+  async function handleSave() {
+    await saveForm(record, form, INT_FIELDS)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
   return (
     <div className="px-4 py-4 space-y-3 pb-8">
       <Card>
         <CardTitle>👨‍👩‍👧 ครอบครัว</CardTitle>
         <div className="text-[11px] text-gray-400 mt-1 mb-2">ส่วนตัว 60,000 (auto)</div>
-        <NumField record={record} field="spouseAllowance" label="คู่สมรส (60,000)" help="0 หรือ 60,000" />
-        <NumField record={record} field="childrenCount" label="จำนวนบุตร" help="คนแรก 30k, คนที่ 2+ เกิดก่อน 2561 30k" intOnly />
-        <NumField record={record} field="childrenAfter2561" label="บุตร (เกิดตั้งแต่ 2561, ตั้งแต่คนที่ 2)" help="60,000/คน" intOnly />
-        <NumField record={record} field="parentsCount" label="อุปการะบิดามารดา (60+, รายได้<30k)" help="30,000/คน max 4" intOnly />
+        <Field label="คู่สมรส (60,000)" help="0 หรือ 60,000" value={form.spouseAllowance ?? ''} onChange={set('spouseAllowance')} />
+        <Field label="จำนวนบุตร" help="คนแรก 30k, คนที่ 2+ เกิดก่อน 2561 30k" value={form.childrenCount ?? ''} onChange={set('childrenCount')} />
+        <Field label="บุตร (เกิดตั้งแต่ 2561, ตั้งแต่คนที่ 2)" help="60,000/คน" value={form.childrenAfter2561 ?? ''} onChange={set('childrenAfter2561')} />
+        <Field label="อุปการะบิดามารดา (60+, รายได้<30k)" help="30,000/คน max 4" value={form.parentsCount ?? ''} onChange={set('parentsCount')} />
       </Card>
 
       <Card>
         <CardTitle>🛡️ ประกัน</CardTitle>
-        <NumField record={record} field="lifeInsurance" label="ประกันชีวิต" help="≤ 100,000 (รวมประกันสุขภาพ)" />
-        <NumField record={record} field="healthInsurance" label="ประกันสุขภาพตน" help="≤ 25,000 (รวมประกันชีวิต ≤ 100,000)" />
-        <NumField record={record} field="parentsHealthInsurance" label="ประกันสุขภาพบิดามารดา" help="≤ 15,000" />
-        <NumField record={record} field="pensionInsurance" label="ประกันชีวิตแบบบำนาญ" help="≤ 200,000 หรือ 15% รายได้" />
-        <NumField record={record} field="socialSecurity" label="ประกันสังคม" help="≤ 9,000 (750 × 12)" />
+        <Field label="ประกันชีวิต" help="≤ 100,000 (รวมประกันสุขภาพ)" value={form.lifeInsurance ?? ''} onChange={set('lifeInsurance')} />
+        <Field label="ประกันสุขภาพตน" help="≤ 25,000 (รวมประกันชีวิต ≤ 100,000)" value={form.healthInsurance ?? ''} onChange={set('healthInsurance')} />
+        <Field label="ประกันสุขภาพบิดามารดา" help="≤ 15,000" value={form.parentsHealthInsurance ?? ''} onChange={set('parentsHealthInsurance')} />
+        <Field label="ประกันชีวิตแบบบำนาญ" help="≤ 200,000 หรือ 15% รายได้" value={form.pensionInsurance ?? ''} onChange={set('pensionInsurance')} />
+        <Field label="ประกันสังคม" help="≤ 9,000 (750 × 12)" value={form.socialSecurity ?? ''} onChange={set('socialSecurity')} />
       </Card>
 
       <Card>
         <CardTitle>📈 กองทุนเพื่อการลงทุน</CardTitle>
         <div className="text-[11px] text-amber-600 mt-1 mb-2">⚠️ PVD + บำนาญ + RMF + SSF รวมไม่เกิน 500,000</div>
-        <NumField record={record} field="pvdContribution" label="PVD (พนักงานจ่าย)" help="≤ 500k หรือ 15% รายได้" />
-        <NumField record={record} field="rmf" label="RMF" help="≤ 500k หรือ 30% รายได้" />
-        <NumField record={record} field="ssf" label="SSF" help="≤ 200k หรือ 30% รายได้" />
-        <NumField record={record} field="thaiEsg" label="Thai ESG Fund" help="≤ 300k หรือ 30% รายได้ (cap แยก)" />
+        <Field label="PVD (พนักงานจ่าย)" help="≤ 500k หรือ 15% รายได้" value={form.pvdContribution ?? ''} onChange={set('pvdContribution')} />
+        <Field label="RMF" help="≤ 500k หรือ 30% รายได้" value={form.rmf ?? ''} onChange={set('rmf')} />
+        <Field label="SSF" help="≤ 200k หรือ 30% รายได้" value={form.ssf ?? ''} onChange={set('ssf')} />
+        <Field label="Thai ESG Fund" help="≤ 300k หรือ 30% รายได้ (cap แยก)" value={form.thaiEsg ?? ''} onChange={set('thaiEsg')} />
       </Card>
 
       <Card>
         <CardTitle>💰 อื่นๆ</CardTitle>
-        <NumField record={record} field="mortgageInterest" label="ดอกเบี้ยกู้ที่อยู่อาศัย" help="≤ 100,000" />
-        <NumField record={record} field="easyEReceipt" label="Easy E-Receipt / ช้อปดีมีคืน" help="≤ 50,000 (ปี 2567)" />
-        <NumField record={record} field="donation" label="เงินบริจาคทั่วไป" help="≤ 10% ของรายได้หลังลดหย่อน" />
-        <NumField record={record} field="donationEducation" label="บริจาคการศึกษา/สาธารณสุข (×2)" help="คูณ 2, ≤ 10% หลังลดหย่อน" />
-        <NumField record={record} field="donationPolitical" label="บริจาคพรรคการเมือง" help="≤ 10,000" />
+        <Field label="ดอกเบี้ยกู้ที่อยู่อาศัย" help="≤ 100,000" value={form.mortgageInterest ?? ''} onChange={set('mortgageInterest')} />
+        <Field label="Easy E-Receipt / ช้อปดีมีคืน" help="≤ 50,000 (ปี 2567)" value={form.easyEReceipt ?? ''} onChange={set('easyEReceipt')} />
+        <Field label="เงินบริจาคทั่วไป" help="≤ 10% ของรายได้หลังลดหย่อน" value={form.donation ?? ''} onChange={set('donation')} />
+        <Field label="บริจาคการศึกษา/สาธารณสุข (×2)" help="คูณ 2, ≤ 10% หลังลดหย่อน" value={form.donationEducation ?? ''} onChange={set('donationEducation')} />
+        <Field label="บริจาคพรรคการเมือง" help="≤ 10,000" value={form.donationPolitical ?? ''} onChange={set('donationPolitical')} />
       </Card>
+
+      <SaveButton onSave={handleSave} saved={saved} />
     </div>
   )
 }
@@ -352,49 +434,3 @@ function Row({ label, value, negative, bold, color }: { label: string; value: nu
   )
 }
 
-function NumField({ record, field, label, help, intOnly }: {
-  record: TaxRecord; field: keyof TaxRecord; label: string; help?: string; intOnly?: boolean
-}) {
-  const [local, setLocal] = useState((record[field] as number | undefined)?.toString() ?? '')
-  const localRef = useRef(local)
-  const recordRef = useRef(record)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  localRef.current = local
-  recordRef.current = record
-
-  // Re-sync only when the actual DB value changes (not just object reference)
-  useEffect(() => {
-    setLocal((record[field] as number | undefined)?.toString() ?? '')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.id, record[field]])
-
-  function persist(value: string) {
-    const v = intOnly ? parseInt(value) : parseFloat(value)
-    const val = isNaN(v) ? 0 : v
-    if ((recordRef.current[field] as number ?? 0) === val) return
-    db.taxRecords.update(recordRef.current.id!, { [field]: val, updatedAt: new Date().toISOString() })
-  }
-
-  function scheduleAutoSave(value: string) {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => persist(value), 600)
-  }
-
-  // Flush immediately on unmount (iOS tab-switch) and on blur
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    persist(localRef.current)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div className="mb-2.5">
-      <div className="text-[12px] font-semibold text-gray-600 mb-0.5">{label}</div>
-      {help && <div className="text-[10px] text-gray-400 mb-1">{help}</div>}
-      <input type="number" value={local}
-        onChange={e => { setLocal(e.target.value); scheduleAutoSave(e.target.value) }}
-        onBlur={e => { if (timerRef.current) clearTimeout(timerRef.current); persist(e.target.value) }}
-        placeholder="0"
-        className="border border-gray-200 rounded-xl px-3 py-2 text-sm w-full" />
-    </div>
-  )
-}
