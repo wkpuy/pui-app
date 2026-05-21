@@ -4,7 +4,6 @@ import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { chatWithCoach, analyzePatterns, initGemini } from '../api/gemini'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
-import { fetchStockPrices } from '../api/stockPrice'
 import { BIOMARKERS, getCheckups } from './Health'
 import { calcThaiTax, suggestUnusedAllowances } from '../utils/thaiTax'
 
@@ -46,7 +45,6 @@ export default function AICoach() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [alerts, setAlerts] = useState<string[]>([])
-  const [priceSyncStatus, setPriceSyncStatus] = useState<string | null>(null)
   const [chatCount, setChatCount] = useState<number>(0)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -83,52 +81,10 @@ export default function AICoach() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-refresh stock prices on mount (once per session)
-  useEffect(() => {
-    if (!investments) return
-    if (sessionStorage.getItem('coach_prices_synced')) return
-    sessionStorage.setItem('coach_prices_synced', '1')
-    refreshPrices()
-  }, [investments])
-
   useEffect(() => {
     if (!settings?.geminiApiKey || !investments || !allHealthRecords) return
     buildSmartAlerts()
   }, [settings, investments, allHealthRecords, allFinance])
-
-  async function refreshPrices() {
-    const tickerInvs = (investments ?? []).filter(i =>
-      (i.type === 'thai_stock' || i.type === 'foreign_stock' || i.type === 'fund') && i.ticker
-    )
-    if (tickerInvs.length === 0) return
-    setPriceSyncStatus('⏳ กำลังอัพเดทราคาหุ้น...')
-    try {
-      const tickerMap = tickerInvs.map(inv => ({
-        inv,
-        apiTicker: inv.type === 'thai_stock' && inv.ticker && !inv.ticker.includes('.')
-          ? inv.ticker + '.BK' : inv.ticker!,
-      }))
-      const prices = await fetchStockPrices(tickerMap.map(x => x.apiTicker))
-      let updated = 0
-      for (const { inv, apiTicker } of tickerMap) {
-        const price = prices[apiTicker]
-        if (price) {
-          const totalValue = inv.shares ? parseFloat((price * inv.shares).toFixed(2)) : price
-          await db.investments.update(inv.id!, {
-            currentPricePerUnit: price,
-            currentValue: totalValue,
-            updatedAt: new Date().toISOString(),
-          })
-          updated++
-        }
-      }
-      setPriceSyncStatus(`✅ ราคาอัพเดท ${updated}/${tickerInvs.length} รายการ`)
-      setTimeout(() => setPriceSyncStatus(null), 3000)
-    } catch {
-      setPriceSyncStatus('⚠️ อัพเดทราคาไม่สำเร็จ — กด Sync อีกครั้ง')
-      setTimeout(() => setPriceSyncStatus(null), 3000)
-    }
-  }
 
   function buildContext() {
     const age = profile ? getAgeDetail(profile.dob) : null
@@ -471,14 +427,7 @@ ${checkups.map(c => `- ${c}`).join('\n')}
       <PageHeader
         title="AI Coach"
         gradient="from-purple-500 to-violet-600"
-        rightAction={{ label: '🔄 ราคา', onClick: refreshPrices }}
       />
-
-      {priceSyncStatus && (
-        <div className="bg-purple-50 px-4 py-1.5 text-[12px] text-purple-700 font-medium border-b border-purple-100">
-          {priceSyncStatus}
-        </div>
-      )}
 
       {/* Chat storage info bar — แสดงเมื่อมีข้อความสะสม */}
       {chatCount > 0 && (
