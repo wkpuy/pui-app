@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { LumenEntry, HealthDaily } from '../db'
 
@@ -120,10 +121,21 @@ export default function Lumen() {
     { id: 'analysis', label: 'วิเคราะห์', icon: '🔍' },
   ]
 
+  const navigate = useNavigate()
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
       <div className="bg-gradient-to-br from-orange-500 to-amber-500 px-4 pt-12 pb-4 text-white">
+        <button
+          onClick={() => navigate('/health')}
+          className="flex items-center gap-1 text-orange-100 text-[13px] mb-3 active:opacity-70"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          สุขภาพ
+        </button>
         <div className="flex items-center gap-2 mb-1">
           <span className="text-2xl">🔥</span>
           <h1 className="text-xl font-bold">Lumen Metabolism</h1>
