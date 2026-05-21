@@ -429,8 +429,8 @@ function saveDoneCheckups(s: Set<string>) {
 function LumenSummaryCard() {
   const navigate = useNavigate()
   const today = new Date().toISOString().slice(0, 10)
-  const todayEntry = useLiveQuery(() => db.lumenEntries.where('date').equals(today).first(), [today])
-  const last14 = useLiveQuery(() => db.lumenEntries.orderBy('date').reverse().limit(14).toArray(), [])
+  const todayEntry = useLiveQuery(async () => { try { return await db.lumenEntries.where('date').equals(today).first() } catch { return undefined } }, [today])
+  const last14 = useLiveQuery(async () => { try { return await db.lumenEntries.orderBy('date').reverse().limit(14).toArray() } catch { return [] } }, [])
 
   const flexScore = (() => {
     if (!last14 || last14.length === 0) return null

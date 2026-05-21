@@ -51,7 +51,7 @@ export default function DailyBrief() {
   const todayDaily     = useLiveQuery(() => db.healthDaily.where('date').equals(today).first(), [today])
   const latestDaily    = useLiveQuery(() => db.healthDaily.orderBy('date').last())
   const latestRecord   = useLiveQuery(() => db.healthRecords.orderBy('date').last())
-  const todayLumen     = useLiveQuery(() => db.lumenEntries.where('date').equals(today).first(), [today])
+  const todayLumen     = useLiveQuery(async () => { try { return await db.lumenEntries.where('date').equals(today).first() } catch { return undefined } }, [today])
   const installments   = useLiveQuery(() => db.installments.toArray())
   const subscriptions  = useLiveQuery(() => db.subscriptions.toArray())
   const financeRecords = useLiveQuery(
@@ -59,8 +59,8 @@ export default function DailyBrief() {
     [mk]
   )
   const googleTokens   = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
-  const allMeds        = useLiveQuery(() => db.medications.toArray())
-  const todayMedLogs   = useLiveQuery(() => db.medicationLogs.where('date').equals(today).toArray(), [today])
+  const allMeds        = useLiveQuery(async () => { try { return await db.medications.toArray() } catch { return [] } })
+  const todayMedLogs   = useLiveQuery(async () => { try { return await db.medicationLogs.where('date').equals(today).toArray() } catch { return [] } }, [today])
 
   // ─── Calendar ─────────────────────────────────────────────────────────────
   const [todayEvents, setTodayEvents] = useState<any[]>([])
