@@ -11,7 +11,7 @@ import { syncWhoopAndSave } from '../api/whoopSync'
 const CLEAR_SECTIONS = [
   { key: 'home',       label: '🏠 หน้าหลัก',  tables: ['profile', 'netWorthSnapshots'] },
   { key: 'investment', label: '📈 ลงทุน',     tables: ['investments', 'dividends'] },
-  { key: 'health',     label: '💪 สุขภาพ',    tables: ['healthRecords', 'healthDaily', 'medications', 'medicationLogs'] },
+  { key: 'health',     label: '💪 สุขภาพ',    tables: ['healthRecords', 'healthDaily', 'medications', 'medicationLogs', 'lumenEntries'] },
   { key: 'finance',    label: '💰 การเงิน',   tables: ['financeRecords', 'installments', 'subscriptions', 'salaryRecords', 'condoMortgage', 'taxRecords'] },
   { key: 'retirement', label: '🌅 เกษียณ',    tables: ['retirementPlan', 'emergencyFund'] },
   { key: 'coach',      label: '🤖 AI Coach',  tables: ['chatMessages'] },
@@ -219,6 +219,7 @@ export default function Settings() {
       salaryRecords: await db.salaryRecords.toArray(),
       condoMortgage: await db.condoMortgage.toArray(),
       installments: await db.installments.toArray(),
+      lumenEntries: await db.lumenEntries.toArray(),
       exportedAt: new Date().toISOString(),
     }
     // Download local copy
@@ -267,6 +268,7 @@ export default function Settings() {
       if (data.salaryRecords) await db.salaryRecords.bulkAdd(data.salaryRecords.map((d: any) => ({ ...d, id: undefined })))
       if (data.condoMortgage) await db.condoMortgage.bulkAdd(data.condoMortgage.map((d: any) => ({ ...d, id: undefined })))
       if (data.installments) await db.installments.bulkAdd(data.installments.map((d: any) => ({ ...d, id: undefined })))
+      if (data.lumenEntries) await db.lumenEntries.bulkAdd(data.lumenEntries.map((d: any) => ({ ...d, id: undefined })))
       setSyncStatus('✓ Import สำเร็จ กำลังโหลดใหม่...')
       setTimeout(() => window.location.reload(), 1500)
     } catch {
