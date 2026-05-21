@@ -56,6 +56,7 @@ interface BudgetConfig {
   insurance: number         // ค่าประกัน/เดือน
   subscription: number      // Subscription/เดือน
   withholdingTax: number    // หักภาษี ณ ที่จ่าย (กรอกเอง) /เดือน
+  rentalIncome: number      // รายได้จากการปล่อยเช่า/เดือน
   familyBudget: number      // ครอบครัว เป้า/เดือน
   foodBudget: number        // อาหาร เป้า/เดือน
   shoppingBudget: number    // ช็อปปิ้ง เป้า/เดือน
@@ -63,7 +64,7 @@ interface BudgetConfig {
 }
 const BUDGET_DEFAULT: BudgetConfig = {
   internet: 0, utilities: 0, condoFee: 0, condoMortgage: 0, insurance: 0,
-  subscription: 0, withholdingTax: 0,
+  subscription: 0, withholdingTax: 0, rentalIncome: 0,
   familyBudget: 0, foodBudget: 0, shoppingBudget: 0, otherBudget: 0,
 }
 function loadBudget(): BudgetConfig {
@@ -1882,7 +1883,7 @@ function BudgetTab({ month }: { month: string }) {
   const pvd = salary ? Math.round(baseSalary * (salary.pvdEmployeeRate / 100)) : 0
   const SS = 750
   const withholdingMonthly = config.withholdingTax   // กรอกเองใน config
-  const netTakeHome = baseSalary - SS - pvd - withholdingMonthly
+  const netTakeHome = baseSalary - SS - pvd - withholdingMonthly + config.rentalIncome
 
   const condoMonthly = config.condoFee
   const insuranceMonthly = config.insurance
@@ -1938,6 +1939,7 @@ function BudgetTab({ month }: { month: string }) {
           {!salary && <span className="text-[10px] text-amber-600">⚠️ ยังไม่มีข้อมูลเงินเดือน — ไปเพิ่มที่หน้าเงินเดือน</span>}
         </div>
         <BudRow label="เงินเดือน" amount={baseSalary} income />
+        {config.rentalIncome > 0 && <BudRow label="🚗 รายได้ปล่อยเช่า" amount={config.rentalIncome} income />}
         <BudRow label="ประกันสังคม" amount={SS} />
         <BudRow label="หัก PVD" amount={pvd} note={salary ? `${salary.pvdEmployeeRate}%` : undefined} />
         <BudRow label="หักภาษี ณ ที่จ่าย" amount={withholdingMonthly} note="กรอกเอง" />
@@ -2093,7 +2095,10 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
 
-        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">หักจากเงินเดือน</div>
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">รายได้เพิ่มเติม</div>
+        {labeledField('rentalIncome', '🚗 รายได้ปล่อยเช่า / เดือน', 'กรอกเองได้')}
+
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">หักจากเงินเดือน</div>
         {labeledField('withholdingTax', 'หักภาษี ณ ที่จ่าย / เดือน', 'กรอกเองได้')}
 
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">ค่าใช้จ่ายคงที่ / เดือน</div>
