@@ -52,15 +52,18 @@ interface BudgetConfig {
   internet: number          // ค่าเน็ต/เดือน
   utilities: number         // ค่าน้ำ+ไฟ/เดือน
   condoFee: number          // ค่าส่วนกลาง/เดือน
+  condoMortgage: number     // ค่าผ่อนคอนโด/เดือน
   insurance: number         // ค่าประกัน/เดือน
   subscription: number      // Subscription/เดือน
+  withholdingTax: number    // หักภาษี ณ ที่จ่าย (กรอกเอง) /เดือน
   familyBudget: number      // ครอบครัว เป้า/เดือน
   foodBudget: number        // อาหาร เป้า/เดือน
   shoppingBudget: number    // ช็อปปิ้ง เป้า/เดือน
   otherBudget: number       // อื่นๆ เป้า/เดือน
 }
 const BUDGET_DEFAULT: BudgetConfig = {
-  internet: 0, utilities: 0, condoFee: 0, insurance: 0, subscription: 0,
+  internet: 0, utilities: 0, condoFee: 0, condoMortgage: 0, insurance: 0,
+  subscription: 0, withholdingTax: 0,
   familyBudget: 0, foodBudget: 0, shoppingBudget: 0, otherBudget: 0,
 }
 function loadBudget(): BudgetConfig {
@@ -1869,7 +1872,6 @@ function BudgetTab({ month }: { month: string }) {
   const monthEnd = `${month}-31`
 
   const salaryRecords = useLiveQuery(() => db.salaryRecords.orderBy('year').toArray())
-  const taxRecords = useLiveQuery(() => db.taxRecords.orderBy('year').toArray())
   const monthRecords = useLiveQuery(
     () => db.financeRecords.where('date').between(monthStart, monthEnd, true, true).filter(r => r.type === 'expense').toArray(),
     [monthStart, monthEnd]
@@ -1879,8 +1881,7 @@ function BudgetTab({ month }: { month: string }) {
   const baseSalary = salary?.baseSalary ?? 0
   const pvd = salary ? Math.round(baseSalary * (salary.pvdEmployeeRate / 100)) : 0
   const SS = 750
-  const taxRec = taxRecords?.find(t => t.year === year + 543)
-  const withholdingMonthly = taxRec ? Math.round((taxRec.withholdingTax ?? 0) / 12) : 0
+  const withholdingMonthly = config.withholdingTax   // กรอกเองใน config
   const netTakeHome = baseSalary - SS - pvd - withholdingMonthly
 
   const condoMonthly = config.condoFee
@@ -1896,7 +1897,7 @@ function BudgetTab({ month }: { month: string }) {
   const aFamily   = actual['ครอบครัว'] ?? 0
   const aOther    = actual['อื่นๆ']    ?? 0
 
-  const totalFixed   = config.internet + config.utilities + condoMonthly + insuranceMonthly + subTotal
+  const totalFixed   = config.internet + config.utilities + condoMonthly + config.condoMortgage + insuranceMonthly + subTotal
   const budgetTotal  = totalFixed + config.familyBudget + config.foodBudget + config.shoppingBudget + config.otherBudget
   const actualTotal  = totalFixed + aFamily + aFood + aShopping + aOther
   const budgetRemain = netTakeHome - budgetTotal
@@ -1939,7 +1940,7 @@ function BudgetTab({ month }: { month: string }) {
         <BudRow label="เงินเดือน" amount={baseSalary} income />
         <BudRow label="ประกันสังคม" amount={SS} />
         <BudRow label="หัก PVD" amount={pvd} note={salary ? `${salary.pvdEmployeeRate}%` : undefined} />
-        <BudRow label="หักภาษี ณ ที่จ่าย" amount={withholdingMonthly} note="/12" />
+        <BudRow label="หักภาษี ณ ที่จ่าย" amount={withholdingMonthly} note="กรอกเอง" />
         <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
           <span className="text-gray-700">รับสุทธิ</span>
           <span className="text-emerald-600">{formatCurrency(netTakeHome, 0)}</span>
@@ -1955,6 +1956,7 @@ function BudgetTab({ month }: { month: string }) {
         <BudRow label="ค่าเน็ต" amount={config.internet} />
         <BudRow label="ค่าน้ำ / ค่าไฟ" amount={config.utilities} />
         <BudRow label="ค่าส่วนกลาง" amount={condoMonthly} />
+        <BudRow label="🏠 ค่าผ่อนคอนโด" amount={config.condoMortgage} />
         <BudRow label="ค่าประกัน" amount={insuranceMonthly} />
         <BudRow label="📱 Subscription" amount={subTotal} />
         <div className="border-t pt-2 mt-1.5 flex justify-between text-[13px] font-bold">
@@ -2091,10 +2093,14 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
 
-        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">ค่าใช้จ่ายคงที่ / เดือน</div>
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3">หักจากเงินเดือน</div>
+        {labeledField('withholdingTax', 'หักภาษี ณ ที่จ่าย / เดือน', 'กรอกเองได้')}
+
+        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-3 mt-5">ค่าใช้จ่ายคงที่ / เดือน</div>
         {labeledField('internet', 'ค่าเน็ต')}
         {labeledField('utilities', 'ค่าน้ำ + ค่าไฟ (รวม)')}
         {labeledField('condoFee', 'ค่าส่วนกลางคอนโด')}
+        {labeledField('condoMortgage', '🏠 ค่าผ่อนคอนโด')}
         {labeledField('insurance', 'ค่าประกัน (รวมทุกกรมธรรม์)')}
         {labeledField('subscription', '📱 Subscription')}
 
