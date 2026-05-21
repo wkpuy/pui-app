@@ -154,9 +154,15 @@ export default function Dashboard() {
             <div className="text-sm opacity-90">{greeting} 👋</div>
             <div className="text-[28px] font-bold leading-tight">{profile.nickname}</div>
           </div>
-          <button onClick={() => navigate('/settings')} aria-label="ตั้งค่า" className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center text-xl">
-            ⚙️
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate('/daily')} aria-label="Daily Brief"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/20 text-white text-[12px] font-semibold active:opacity-70">
+              🌅 Daily Brief
+            </button>
+            <button onClick={() => navigate('/settings')} aria-label="ตั้งค่า" className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center text-xl">
+              ⚙️
+            </button>
+          </div>
         </div>
 
         {/* Age real-time */}
