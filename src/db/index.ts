@@ -3,7 +3,7 @@ import type {
   Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
   GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
-  Subscription, TaxRecord, Medication, MedicationLog, NetWorthSnapshot,
+  Subscription, TaxRecord, Medication, MedicationLog, NetWorthSnapshot, LumenEntry,
 } from './types'
 
 class AppDB extends Dexie {
@@ -27,6 +27,7 @@ class AppDB extends Dexie {
   medications!: Table<Medication>
   medicationLogs!: Table<MedicationLog>
   netWorthSnapshots!: Table<NetWorthSnapshot>
+  lumenEntries!: Table<LumenEntry>
 
   constructor() {
     super('PuiPersonalApp')
@@ -139,6 +140,29 @@ class AppDB extends Dexie {
       medicationLogs: '++id, medicationId, date, [medicationId+date]',
       netWorthSnapshots: '++id, date',
     })
+    this.version(7).stores({
+      profile: '++id',
+      investments: '++id, type, ticker',
+      dividends: '++id, investmentId, date',
+      healthRecords: '++id, date',
+      healthDaily: '++id, date',
+      retirementPlan: '++id',
+      financeRecords: '++id, date, type, source, rawRef',
+      emergencyFund: '++id',
+      chatMessages: '++id, timestamp',
+      googleTokens: '++id',
+      syncLog: '++id, source',
+      settings: '++id',
+      salaryRecords: '++id, year',
+      condoMortgage: '++id',
+      installments: '++id, startDate',
+      subscriptions: '++id, nextRenewalDate, active',
+      taxRecords: '++id, year',
+      medications: '++id, active',
+      medicationLogs: '++id, medicationId, date, [medicationId+date]',
+      netWorthSnapshots: '++id, date',
+      lumenEntries: '++id, date',
+    })
   }
 }
 
@@ -190,5 +214,5 @@ export type {
   Profile, Investment, Dividend, HealthRecord, HealthDaily,
   RetirementPlan, FinanceRecord, EmergencyFund, ChatMessage,
   GoogleTokens, SyncLog, AppSettings, SalaryRecord, CondoMortgage, Installment,
-  Subscription, TaxRecord, Medication, MedicationLog, NetWorthSnapshot,
+  Subscription, TaxRecord, Medication, MedicationLog, NetWorthSnapshot, LumenEntry,
 }

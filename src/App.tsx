@@ -17,6 +17,7 @@ import Salary from './pages/Salary'
 import Condo from './pages/Condo'
 import Tax from './pages/Tax'
 import NetWorth from './pages/NetWorth'
+import Lumen from './pages/Lumen'
 import { exchangeCode, saveWhoopTokens } from './api/whoop'
 
 async function handleWhoopCallback(): Promise<string | null> {
@@ -95,6 +96,7 @@ function MainLayout() {
           <Route path="/condo" element={<Condo />} />
           <Route path="/tax" element={<Tax />} />
           <Route path="/networth" element={<NetWorth />} />
+          <Route path="/lumen" element={<Lumen />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>

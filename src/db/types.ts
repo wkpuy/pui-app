@@ -343,3 +343,34 @@ export interface NetWorthSnapshot {
   totalLiabilities: number;
   netWorth: number;
 }
+
+export interface LumenEntry {
+  id?: number;
+  date: string; // YYYY-MM-DD
+
+  // 🌅 Morning (fasted — most important)
+  morningScore?: number; // 1-5
+  morningTime?: string; // HH:MM
+  morningRemark?: string; // กินอะไรก่อนนอนคืนที่แล้ว
+
+  // 💪 Workout (optional — show only if didWorkout=true)
+  didWorkout?: boolean;
+  workoutType?: 'cardio' | 'weight' | 'hiit' | 'yoga' | 'other';
+  workoutMinutes?: number;
+  preWorkoutScore?: number; // 1-5
+  preWorkoutRemark?: string; // กินอะไรก่อนออก
+  postWorkoutScore?: number; // 1-5
+  postWorkoutRemark?: string; // สังเกตร่างกายหลังออก
+
+  // 🍽️ Afternoon (~2hrs after lunch)
+  afternoonScore?: number; // 1-5
+  afternoonTime?: string; // HH:MM
+  afternoonRemark?: string; // กินอะไรมื้อกลางวัน
+
+  // 🌙 Night (before bed)
+  nightScore?: number; // 1-5
+  nightTime?: string; // HH:MM
+  nightRemark?: string; // กินอะไรมื้อเย็น
+
+  // Weight is synced from healthDaily — not stored here
+}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { HealthRecord, HealthDaily, Medication } from '../db'
 import PageHeader from '../components/PageHeader'
@@ -425,6 +426,81 @@ function saveDoneCheckups(s: Set<string>) {
   localStorage.setItem(CHECKUP_STORAGE_KEY, JSON.stringify([...s]))
 }
 
+function LumenSummaryCard() {
+  const navigate = useNavigate()
+  const today = new Date().toISOString().slice(0, 10)
+  const todayEntry = useLiveQuery(() => db.lumenEntries.where('date').equals(today).first(), [today])
+  const last14 = useLiveQuery(() => db.lumenEntries.orderBy('date').reverse().limit(14).toArray(), [])
+
+  const flexScore = (() => {
+    if (!last14 || last14.length === 0) return null
+    const sorted = [...last14].sort((a, b) => a.date.localeCompare(b.date))
+    const scores = sorted.map(e => {
+      const allScores = [e.morningScore, e.preWorkoutScore, e.postWorkoutScore, e.afternoonScore, e.nightScore].filter(Boolean) as number[]
+      const delta = allScores.length >= 2 ? Math.max(...allScores) - Math.min(...allScores) : 0
+      const fastingMap: Record<number, number> = { 1: 10, 2: 7, 3: 4, 4: 2, 5: 0 }
+      const fp = fastingMap[e.morningScore ?? 3] ?? 4
+      const dm: Record<number, number> = { 0: 0, 1: 2, 2: 5, 3: 7, 4: 10 }
+      const dp = dm[Math.min(delta, 4)] ?? 0
+      return (fp * 0.4 + dp * 0.6) * 10
+    })
+    return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+  })()
+
+  const loggedToday = [todayEntry?.morningScore, todayEntry?.afternoonScore, todayEntry?.nightScore].filter(Boolean).length
+
+  return (
+    <div className="mx-4 mt-3">
+      <button
+        onClick={() => navigate('/lumen')}
+        className="w-full bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-4 text-left active:scale-[0.99] transition-transform"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🔥</span>
+            <div>
+              <div className="font-bold text-[14px] text-gray-800">Lumen Metabolism</div>
+              <div className="text-[11px] text-gray-400">ติดตาม Metabolic Score</div>
+            </div>
+          </div>
+          {flexScore !== null ? (
+            <div className="text-right">
+              <div className="text-xl font-bold text-orange-500">{flexScore}</div>
+              <div className="text-[10px] text-gray-400">Flex Score</div>
+            </div>
+          ) : (
+            <div className="text-[12px] text-orange-400 font-semibold">เริ่มบันทึก →</div>
+          )}
+        </div>
+        {todayEntry ? (
+          <div className="flex gap-2">
+            {[
+              { label: '🌅', score: todayEntry.morningScore },
+              { label: '🍽️', score: todayEntry.afternoonScore },
+              { label: '🌙', score: todayEntry.nightScore },
+            ].map(({ label, score }) => (
+              <div key={label} className="flex items-center gap-1">
+                <span className="text-[11px]">{label}</span>
+                {score ? (
+                  <span className={`w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center
+                    ${score <= 2 ? 'bg-emerald-500' : score === 3 ? 'bg-amber-400' : 'bg-red-400'}`}>
+                    {score}
+                  </span>
+                ) : (
+                  <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-300 text-[10px] flex items-center justify-center">—</span>
+                )}
+              </div>
+            ))}
+            <span className="ml-auto text-[11px] text-gray-400">{loggedToday}/3 ค่า</span>
+          </div>
+        ) : (
+          <div className="text-[12px] text-amber-600">⚠️ ยังไม่มีข้อมูลวันนี้ — กดเพื่อบันทึก</div>
+        )}
+      </button>
+    </div>
+  )
+}
+
 function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, checkups, profile, allDaily, allRecords, onSyncWhoop, whoopSyncing, whoopMsg, whoopConnected }: any) {
   const [doneCheckups, setDoneCheckups] = useState<Set<string>>(loadDoneCheckups)
   const whoop = latestWhoopDaily ?? latestDaily
@@ -787,6 +863,9 @@ function SummaryTab({ age, bioAge, latestRecord, latestDaily, latestWhoopDaily, 
           </div>
         )
       })()}
+
+      {/* Lumen Metabolism card */}
+      <LumenSummaryCard />
 
       {/* Weight tracker — chart, quick entry, stats */}
       <WeightTracker allDaily={allDaily ?? []} profile={profile} />
