@@ -5,6 +5,7 @@ import type { LumenEntry, HealthDaily } from '../db'
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().slice(0, 10)
+const nowTime = () => new Date().toTimeString().slice(0, 5) // HH:MM
 const fmt = (d: string) => {
   const [y, m, day] = d.split('-')
   const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
@@ -270,10 +271,10 @@ function DashboardTab({
 
         <div className="grid grid-cols-3 gap-2 mb-3">
           {[
-            { label: '🌅 เช้า', score: todayEntry?.morningScore, remark: todayEntry?.morningRemark },
-            { label: '🍽️ บ่าย', score: todayEntry?.afternoonScore, remark: todayEntry?.afternoonRemark },
-            { label: '🌙 คืน', score: todayEntry?.nightScore, remark: todayEntry?.nightRemark },
-          ].map(({ label, score, remark }) => (
+            { label: '🌅 เช้า', score: todayEntry?.morningScore, remark: todayEntry?.morningRemark, time: todayEntry?.morningTime },
+            { label: '🍽️ บ่าย', score: todayEntry?.afternoonScore, remark: todayEntry?.afternoonRemark, time: todayEntry?.afternoonTime },
+            { label: '🌙 คืน', score: todayEntry?.nightScore, remark: todayEntry?.nightRemark, time: todayEntry?.nightTime },
+          ].map(({ label, score, remark, time }) => (
             <div key={label} className="bg-gray-50 rounded-xl p-2.5 text-center">
               <div className="text-[11px] text-gray-400 mb-1">{label}</div>
               {score ? (
@@ -282,6 +283,7 @@ function DashboardTab({
                     {score}
                   </div>
                   <div className="text-[10px] text-gray-500 leading-tight">{scoreLabel(score)}</div>
+                  {time && <div className="text-[10px] text-gray-400 mt-0.5">🕐 {time}</div>}
                   {remark && <div className="text-[10px] text-gray-400 truncate mt-0.5">{remark}</div>}
                 </>
               ) : (
@@ -389,7 +391,7 @@ function LogTab({
   const [form, setForm] = useState<Partial<LumenEntry>>(() => ({
     date: todayStr,
     morningScore: todayEntry?.morningScore,
-    morningTime: todayEntry?.morningTime ?? '',
+    morningTime: todayEntry?.morningTime ?? nowTime(),
     morningRemark: todayEntry?.morningRemark ?? '',
     didWorkout: todayEntry?.didWorkout ?? false,
     workoutType: todayEntry?.workoutType ?? 'cardio',
@@ -399,10 +401,10 @@ function LogTab({
     postWorkoutScore: todayEntry?.postWorkoutScore,
     postWorkoutRemark: todayEntry?.postWorkoutRemark ?? '',
     afternoonScore: todayEntry?.afternoonScore,
-    afternoonTime: todayEntry?.afternoonTime ?? '',
+    afternoonTime: todayEntry?.afternoonTime ?? nowTime(),
     afternoonRemark: todayEntry?.afternoonRemark ?? '',
     nightScore: todayEntry?.nightScore,
-    nightTime: todayEntry?.nightTime ?? '',
+    nightTime: todayEntry?.nightTime ?? nowTime(),
     nightRemark: todayEntry?.nightRemark ?? '',
   }))
   const [saving, setSaving] = useState(false)
@@ -670,12 +672,12 @@ function HistoryTab({ entries, allDaily }: { entries: LumenEntry[]; allDaily: He
                 </div>
               </div>
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               {[
-                { label: '🌅', score: e.morningScore },
-                { label: '🍽️', score: e.afternoonScore },
-                { label: '🌙', score: e.nightScore },
-              ].map(({ label, score }) => (
+                { label: '🌅', score: e.morningScore, time: e.morningTime },
+                { label: '🍽️', score: e.afternoonScore, time: e.afternoonTime },
+                { label: '🌙', score: e.nightScore, time: e.nightTime },
+              ].map(({ label, score, time }) => (
                 <div key={label} className="flex items-center gap-1">
                   <span className="text-[12px]">{label}</span>
                   {score ? (
@@ -685,6 +687,7 @@ function HistoryTab({ entries, allDaily }: { entries: LumenEntry[]; allDaily: He
                   ) : (
                     <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-300 text-[10px] flex items-center justify-center">—</span>
                   )}
+                  {score && time && <span className="text-[10px] text-gray-400">{time}</span>}
                 </div>
               ))}
               {weight && <span className="ml-auto text-[12px] text-gray-400">⚖️ {weight} กก.</span>}
