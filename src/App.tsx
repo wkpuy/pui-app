@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import BottomNav from './components/BottomNav'
 import { useAutoSync } from './hooks/useAutoSync'
-import Dashboard from './pages/Dashboard'
+
 import Investment from './pages/Investment'
 import Health from './pages/Health'
 import Retirement from './pages/Retirement'
@@ -86,7 +86,7 @@ function MainLayout() {
       )}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<DailyBrief />} />
           <Route path="/investment" element={<Investment />} />
           <Route path="/health" element={<Health />} />
           <Route path="/retirement" element={<Retirement />} />
@@ -98,7 +98,6 @@ function MainLayout() {
           <Route path="/tax" element={<Tax />} />
           <Route path="/networth" element={<NetWorth />} />
           <Route path="/lumen" element={<Lumen />} />
-          <Route path="/daily" element={<DailyBrief />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>

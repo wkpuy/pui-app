@@ -140,17 +140,15 @@ export default function DailyBrief() {
       {/* ── Hero header ── */}
       <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 px-5 pt-[calc(env(safe-area-inset-top)+16px)] pb-5 text-white">
         <div className="flex items-center justify-between mb-3">
-          <button onClick={() => navigate('/')} className="flex items-center gap-1 text-purple-200 text-[13px] active:opacity-70">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            หน้าหลัก
-          </button>
-          <div className="text-purple-200 text-[13px] font-semibold">{thaiTime(now)}</div>
+          <div className="text-purple-200 text-[13px] font-semibold">{thaiDate(now)}</div>
+          <div className="flex items-center gap-2">
+            <div className="text-purple-200 text-[13px] font-semibold">{thaiTime(now)}</div>
+            <button onClick={() => navigate('/settings')} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-lg active:opacity-70">⚙️</button>
+          </div>
         </div>
 
-        <div className="mb-1 text-purple-200 text-[13px]">{greeting(now.getHours())} {profile?.nickname ?? ''} 👋</div>
-        <div className="text-[22px] font-bold leading-tight mb-0.5">{thaiDate(now)}</div>
+        <div className="mb-0.5 text-purple-200 text-[13px]">{greeting(now.getHours())} 👋</div>
+        <div className="text-[26px] font-bold leading-tight mb-0.5">{profile?.nickname ?? 'สวัสดี'}</div>
 
         {/* Quick health strip */}
         <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5 [&::-webkit-scrollbar]:hidden">
@@ -407,7 +405,7 @@ export default function DailyBrief() {
 
         {/* ── Age & quick info ── */}
         {profile && (
-          <Section title="👤 ข้อมูลส่วนตัว" onMore={() => navigate('/')}>
+          <Section title="👤 ข้อมูลส่วนตัว" onMore={() => navigate('/settings')}>
             <div className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
                 {profile.nickname?.[0] ?? 'P'}
