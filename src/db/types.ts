@@ -270,11 +270,13 @@ export interface TaxRecord {
 // ยา/วิตามิน/อาหารเสริม
 export interface Medication {
   id?: number;
-  name: string; // เช่น "Vitamin D3 5000 IU"
+  name: string; // เช่น "Vitamin D3"
   type: "medication" | "supplement" | "vitamin";
-  dose: string; // "1 เม็ด", "10 mg"
+  dose: string;      // ปริมาณ: "1 เม็ด", "2 capsules"
+  doseSize?: string; // ขนาด: "500 mg", "1000 IU", "10 mg"
   frequency: "daily" | "weekly" | "monthly" | "as_needed";
-  timeOfDay?: string; // "เช้า", "เย็น", "ก่อนนอน"
+  timeOfDay?: string;   // "เช้า" | "กลางวัน" | "เย็น" | "ก่อนนอน"
+  mealTiming?: string;  // "ก่อนอาหาร" | "หลังอาหาร" | "พร้อมอาหาร" | ""
   prescribedBy?: string; // หมอ / self
   startDate: string; // YYYY-MM-DD
   endDate?: string; // ถ้ามีกำหนดหยุด

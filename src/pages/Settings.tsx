@@ -219,6 +219,11 @@ export default function Settings() {
       salaryRecords: await db.salaryRecords.toArray(),
       condoMortgage: await db.condoMortgage.toArray(),
       installments: await db.installments.toArray(),
+      subscriptions: await db.subscriptions.toArray(),
+      taxRecords: await db.taxRecords.toArray(),
+      medications: await db.medications.toArray(),
+      medicationLogs: await db.medicationLogs.toArray(),
+      netWorthSnapshots: await db.netWorthSnapshots.toArray(),
       lumenEntries: await db.lumenEntries.toArray(),
       exportedAt: new Date().toISOString(),
     }
@@ -265,9 +270,15 @@ export default function Settings() {
       if (data.healthDaily) await db.healthDaily.bulkAdd(data.healthDaily.map((d: any) => ({ ...d, id: undefined })))
       if (data.retirementPlan) await db.retirementPlan.bulkAdd(data.retirementPlan.map((d: any) => ({ ...d, id: undefined })))
       if (data.financeRecords) await db.financeRecords.bulkAdd(data.financeRecords.map((d: any) => ({ ...d, id: undefined })))
+      if (data.emergencyFund) await db.emergencyFund.bulkAdd(data.emergencyFund.map((d: any) => ({ ...d, id: undefined })))
       if (data.salaryRecords) await db.salaryRecords.bulkAdd(data.salaryRecords.map((d: any) => ({ ...d, id: undefined })))
       if (data.condoMortgage) await db.condoMortgage.bulkAdd(data.condoMortgage.map((d: any) => ({ ...d, id: undefined })))
       if (data.installments) await db.installments.bulkAdd(data.installments.map((d: any) => ({ ...d, id: undefined })))
+      if (data.subscriptions) await db.subscriptions.bulkAdd(data.subscriptions.map((d: any) => ({ ...d, id: undefined })))
+      if (data.taxRecords) await db.taxRecords.bulkAdd(data.taxRecords.map((d: any) => ({ ...d, id: undefined })))
+      if (data.medications) await db.medications.bulkAdd(data.medications.map((d: any) => ({ ...d, id: undefined })))
+      if (data.medicationLogs) await db.medicationLogs.bulkAdd(data.medicationLogs.map((d: any) => ({ ...d, id: undefined })))
+      if (data.netWorthSnapshots) await db.netWorthSnapshots.bulkAdd(data.netWorthSnapshots.map((d: any) => ({ ...d, id: undefined })))
       if (data.lumenEntries) await db.lumenEntries.bulkAdd(data.lumenEntries.map((d: any) => ({ ...d, id: undefined })))
       setSyncStatus('✓ Import สำเร็จ กำลังโหลดใหม่...')
       setTimeout(() => window.location.reload(), 1500)

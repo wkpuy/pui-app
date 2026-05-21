@@ -59,6 +59,8 @@ export default function DailyBrief() {
     [mk]
   )
   const googleTokens   = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
+  const allMeds        = useLiveQuery(() => db.medications.toArray())
+  const todayMedLogs   = useLiveQuery(() => db.medicationLogs.where('date').equals(today).toArray(), [today])
 
   // ─── Calendar ─────────────────────────────────────────────────────────────
   const [todayEvents, setTodayEvents] = useState<any[]>([])
@@ -108,6 +110,27 @@ export default function DailyBrief() {
     (installments ?? []).filter(i => i.paidInstallments < i.totalInstallments),
   [installments])
   const totalInstallment = activeInstallments.reduce((s, i) => s + i.monthlyAmount, 0)
+
+  // Pending medications (active daily meds not yet taken today)
+  const dailyActiveMeds = useMemo(() =>
+    (allMeds ?? []).filter(m => m.active && m.frequency === 'daily'),
+  [allMeds])
+
+  const pendingMeds = useMemo(() =>
+    dailyActiveMeds.filter(m => {
+      const log = (todayMedLogs ?? []).find(l => l.medicationId === m.id)
+      return !log || !log.taken
+    }),
+  [dailyActiveMeds, todayMedLogs])
+
+  async function toggleMedTaken(medId: number) {
+    const existing = (todayMedLogs ?? []).find(l => l.medicationId === medId)
+    if (existing) {
+      await db.medicationLogs.update(existing.id!, { taken: !existing.taken })
+    } else {
+      await db.medicationLogs.add({ medicationId: medId, date: today, taken: true })
+    }
+  }
 
   // Health alerts
   const healthAlerts = useMemo(() => {
@@ -170,6 +193,14 @@ export default function DailyBrief() {
             ok={lumenScore ? lumenScore <= 2 : null}
             onClick={() => navigate('/lumen')}
           />
+          {dailyActiveMeds.length > 0 && (
+            <QuickChip
+              icon="💊"
+              label={pendingMeds.length === 0 ? 'กินยาครบแล้ว' : `ยังไม่กิน ${pendingMeds.length} รายการ`}
+              ok={pendingMeds.length === 0}
+              onClick={() => navigate('/health')}
+            />
+          )}
           {daily?.steps && (
             <QuickChip icon="👣" label={`${daily.steps.toLocaleString()} ก้าว`} ok={daily.steps >= 8000} onClick={() => navigate('/health')} />
           )}
@@ -213,6 +244,42 @@ export default function DailyBrief() {
             </div>
           )}
         </Section>
+
+        {/* ── Medications today ── only shown when there are pending meds */}
+        {pendingMeds.length > 0 && (
+          <Section title="💊 ยา/วิตามินวันนี้" onMore={() => navigate('/health')}>
+            <div className="space-y-2">
+              {pendingMeds.map(m => {
+                const doseLabel = [m.doseSize, m.dose].filter(Boolean).join(' · ')
+                const timeLabel = [m.timeOfDay, m.mealTiming].filter(Boolean).join(' ')
+                return (
+                  <div key={m.id} className="bg-white rounded-xl border border-gray-100 px-3 py-2.5 flex items-center gap-3">
+                    {/* Check button */}
+                    <button
+                      onClick={() => toggleMedTaken(m.id!)}
+                      className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
+                    >
+                      <span className="text-gray-300 text-[16px]">○</span>
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-semibold text-gray-800 truncate">{m.name}</div>
+                      <div className="text-[11px] text-gray-400">
+                        {doseLabel}{timeLabel ? ` · ${timeLabel}` : ''}
+                      </div>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0
+                      bg-indigo-50 text-indigo-600">
+                      {m.type === 'medication' ? '💊 ยา' : m.type === 'vitamin' ? '🔬 วิตามิน' : '🧴 อาหารเสริม'}
+                    </span>
+                  </div>
+                )
+              })}
+              <div className="text-[11px] text-gray-400 text-center pt-0.5">
+                กดวงกลมเพื่อบันทึกว่ากินแล้ว — รายการที่ติ๊กแล้วจะหายไปอัตโนมัติ
+              </div>
+            </div>
+          </Section>
+        )}
 
         {/* ── Health today ── */}
         <Section title="💪 สุขภาพวันนี้" onMore={() => navigate('/health')}>

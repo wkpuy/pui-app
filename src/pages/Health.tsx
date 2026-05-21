@@ -1618,7 +1618,7 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
 // ── Medication / Supplement Tab ────────────────────────────────────────────
 function MedsTab({ onEdit }: { onEdit: (m: Medication) => void }) {
   const today = new Date().toISOString().slice(0, 10)
-  const allMeds = useLiveQuery(() => db.medications.orderBy('name').toArray())
+  const allMeds = useLiveQuery(() => db.medications.toArray().then(r => r.sort((a, b) => a.name.localeCompare(b.name, 'th'))))
   const todayLogs = useLiveQuery(() => db.medicationLogs.where('date').equals(today).toArray())
 
   const TYPE_LABEL: Record<string, string> = { medication: '💊 ยา', supplement: '🧴 อาหารเสริม', vitamin: '🔬 วิตามิน' }
@@ -1672,7 +1672,11 @@ function MedsTab({ onEdit }: { onEdit: (m: Medication) => void }) {
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className={`text-[14px] font-semibold ${taken ? 'line-through text-gray-400' : 'text-gray-800'}`}>{m.name}</div>
-                    <div className="text-[11px] text-gray-400">{m.dose}{m.timeOfDay ? ` · ${m.timeOfDay}` : ''}</div>
+                    <div className="text-[11px] text-gray-400">
+                    {[m.doseSize, m.dose].filter(Boolean).join(' · ')}
+                    {m.timeOfDay ? ` · ${m.timeOfDay}` : ''}
+                    {m.mealTiming ? ` ${m.mealTiming}` : ''}
+                  </div>
                   </div>
                   <span className="text-[11px] text-gray-400 flex-shrink-0">{TYPE_LABEL[m.type]}</span>
                 </div>
@@ -1701,7 +1705,10 @@ function MedsTab({ onEdit }: { onEdit: (m: Medication) => void }) {
                       <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{FREQ_LABEL[m.frequency]}</span>
                     </div>
                     <div className="text-[12px] text-gray-500 mt-0.5">
-                      {m.dose}{m.timeOfDay ? ` · ${m.timeOfDay}` : ''}{m.purpose ? ` — ${m.purpose}` : ''}
+                      {[m.doseSize, m.dose].filter(Boolean).join(' · ')}
+                      {m.timeOfDay ? ` · ${m.timeOfDay}` : ''}
+                      {m.mealTiming ? ` ${m.mealTiming}` : ''}
+                      {m.purpose ? ` — ${m.purpose}` : ''}
                     </div>
                     {m.prescribedBy && <div className="text-[11px] text-gray-400">สั่งโดย: {m.prescribedBy}</div>}
                     {m.startDate && <div className="text-[11px] text-gray-400">เริ่ม {m.startDate}{m.endDate ? ` ถึง ${m.endDate}` : ''}</div>}
@@ -1749,9 +1756,11 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
   const [form, setForm] = useState({
     name: editItem?.name ?? '',
     type: (editItem?.type ?? 'supplement') as 'medication' | 'supplement' | 'vitamin',
-    dose: editItem?.dose ?? '',
+    dose: editItem?.dose ?? '',          // ปริมาณ: 1 เม็ด, 2 capsules
+    doseSize: editItem?.doseSize ?? '',  // ขนาด: 500 mg, 1000 IU
     frequency: (editItem?.frequency ?? 'daily') as 'daily' | 'weekly' | 'monthly' | 'as_needed',
     timeOfDay: editItem?.timeOfDay ?? '',
+    mealTiming: editItem?.mealTiming ?? '',
     prescribedBy: editItem?.prescribedBy ?? '',
     startDate: editItem?.startDate ?? new Date().toISOString().slice(0, 10),
     endDate: editItem?.endDate ?? '',
@@ -1764,15 +1773,18 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
   function set(k: string, v: any) { setForm(f => ({ ...f, [k]: v })) }
 
   async function saveMed() {
-    if (!form.name.trim() || !form.dose.trim()) { alert('กรุณากรอกชื่อและขนาดยา'); return }
+    if (!form.name.trim()) { alert('กรุณากรอกชื่อยา/วิตามิน'); return }
+    if (!form.dose.trim()) { alert('กรุณากรอกปริมาณ (เช่น 1 เม็ด, 2 capsules)'); return }
     setSaving(true)
     try {
       const record: Omit<Medication, 'id'> = {
         name: form.name.trim(),
         type: form.type,
         dose: form.dose.trim(),
+        doseSize: form.doseSize.trim() || undefined,
         frequency: form.frequency,
         timeOfDay: form.timeOfDay || undefined,
+        mealTiming: form.mealTiming || undefined,
         prescribedBy: form.prescribedBy || undefined,
         startDate: form.startDate,
         endDate: form.endDate || undefined,
@@ -1821,31 +1833,64 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
             className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
         </div>
 
-        {/* Dose */}
-        <div>
-          <div className="text-[12px] font-semibold text-gray-500 mb-1">ขนาด/ปริมาณ *</div>
-          <input value={form.dose} onChange={e => set('dose', e.target.value)}
-            placeholder="เช่น 1 เม็ด, 2 capsules, 10 mg"
-            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
-        </div>
-
-        {/* Frequency & Time */}
+        {/* Dose: size + quantity side by side */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="text-[12px] font-semibold text-gray-500 mb-1">ความถี่</div>
-            <select value={form.frequency} onChange={e => set('frequency', e.target.value)}
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">ขนาด</div>
+            <input value={form.doseSize} onChange={e => set('doseSize', e.target.value)}
+              placeholder="500 mg, 1000 IU, 10 mg"
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">ปริมาณ *</div>
+            <input value={form.dose} onChange={e => set('dose', e.target.value)}
+              placeholder="1 เม็ด, 2 capsules"
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+          </div>
+        </div>
+
+        {/* Frequency */}
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ความถี่</div>
+          <select value={form.frequency} onChange={e => set('frequency', e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full">
+            <option value="daily">ทุกวัน</option>
+            <option value="weekly">ทุกสัปดาห์</option>
+            <option value="monthly">ทุกเดือน</option>
+            <option value="as_needed">เมื่อจำเป็น</option>
+          </select>
+        </div>
+
+        {/* Time of day + meal timing */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">มื้อ/ช่วงเวลา</div>
+            <select value={form.timeOfDay} onChange={e => { set('timeOfDay', e.target.value); if (e.target.value === 'ก่อนนอน') set('mealTiming', '') }}
               className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full">
-              <option value="daily">ทุกวัน</option>
-              <option value="weekly">ทุกสัปดาห์</option>
-              <option value="monthly">ทุกเดือน</option>
-              <option value="as_needed">เมื่อจำเป็น</option>
+              <option value="">ไม่ระบุ</option>
+              <option value="เช้า">🌅 เช้า</option>
+              <option value="กลางวัน">☀️ กลางวัน</option>
+              <option value="เย็น">🌆 เย็น</option>
+              <option value="ก่อนนอน">🌙 ก่อนนอน</option>
             </select>
           </div>
           <div>
-            <div className="text-[12px] font-semibold text-gray-500 mb-1">เวลา</div>
-            <input value={form.timeOfDay} onChange={e => set('timeOfDay', e.target.value)}
-              placeholder="เช้า / เย็น / ก่อนนอน"
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">
+              {form.timeOfDay === 'ก่อนนอน' || form.timeOfDay === '' ? <span className="text-gray-300">ก่อน/หลังอาหาร</span> : 'ก่อน/หลังอาหาร'}
+            </div>
+            <select
+              value={form.mealTiming}
+              onChange={e => set('mealTiming', e.target.value)}
+              disabled={form.timeOfDay === 'ก่อนนอน' || form.timeOfDay === ''}
+              className={`border rounded-xl px-3 py-2.5 text-sm w-full transition-colors
+                ${form.timeOfDay === 'ก่อนนอน' || form.timeOfDay === ''
+                  ? 'border-gray-100 bg-gray-50 text-gray-300'
+                  : 'border-gray-200 text-gray-800'}`}>
+              <option value="">ไม่ระบุ</option>
+              <option value="ก่อนอาหาร">ก่อนอาหาร</option>
+              <option value="หลังอาหาร">หลังอาหาร</option>
+              <option value="พร้อมอาหาร">พร้อมอาหาร</option>
+            </select>
           </div>
         </div>
 
