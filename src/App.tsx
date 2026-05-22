@@ -5,6 +5,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 import BottomNav from './components/BottomNav'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAutoSync } from './hooks/useAutoSync'
+import { useTokenAutoRefresh } from './hooks/useTokenAutoRefresh'
 
 import Investment from './pages/Investment'
 import Health from './pages/Health'
@@ -58,6 +59,7 @@ export default function App() {
 
 function MainLayout() {
   useAutoSync()
+  useTokenAutoRefresh()
   const [healthToast, setHealthToast] = useState<string | null>(null)
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
 

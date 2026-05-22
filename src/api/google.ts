@@ -53,6 +53,52 @@ export async function signInWithGoogle(clientId: string): Promise<{ accessToken:
   })
 }
 
+/**
+ * Silent token refresh — opens a tiny hidden popup with prompt=none.
+ * Returns a new accessToken if Google session is still active, or null if it needs re-login.
+ * Works without any user interaction when the Google session cookie is still valid.
+ */
+export async function silentRefreshGoogleToken(clientId: string, scope: string): Promise<string | null> {
+  return new Promise(resolve => {
+    const redirectUri = window.location.origin
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'token',
+      scope,
+      prompt: 'none',
+      include_granted_scopes: 'true',
+    })
+
+    // Open a 1×1 px window far off-screen — user won't see it
+    const popup = window.open(
+      `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
+      'silent_oauth_refresh',
+      'width=1,height=1,top=-1000,left=-1000,menubar=no,toolbar=no'
+    )
+
+    if (!popup) { resolve(null); return }
+
+    const timer = setInterval(() => {
+      try {
+        if (popup.closed) { clearInterval(timer); resolve(null); return }
+        const url = new URL(popup.location.href)
+        if (url.origin === window.location.origin) {
+          clearInterval(timer)
+          popup.close()
+          const hash = new URLSearchParams(url.hash.slice(1))
+          resolve(hash.get('access_token'))
+        }
+      } catch {
+        // still cross-origin (waiting for Google → redirect back)
+      }
+    }, 300)
+
+    // Give up after 15 seconds
+    setTimeout(() => { clearInterval(timer); if (!popup.closed) popup.close(); resolve(null) }, 15000)
+  })
+}
+
 export async function fetchCalendarEvents(accessToken: string, timeMinIso?: string, timeMaxIso?: string) {
   const now = new Date()
   const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
