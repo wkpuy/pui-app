@@ -1366,6 +1366,23 @@ function DailyTab({ daily, onEdit }: { daily: HealthDaily[]; onEdit: (d: HealthD
 // ── Health Record Form ─────────────────────────────────────────────────────
 type HealthFormState = Partial<Record<string, string>> & { date: string }
 
+// ── Must live OUTSIDE HealthRecordForm so its identity is stable across re-renders.
+// Defining it inside the parent creates a new component type every keystroke → focus loss.
+function HealthRecordField({ label, k, ph, form, onChange }: {
+  label: string; k: string; ph?: string
+  form: HealthFormState
+  onChange: (k: string, v: string) => void
+}) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-gray-500 mb-1">{label}</div>
+      <input type="number" inputMode="decimal" step="any" placeholder={ph} value={form[k] ?? ''}
+        onChange={e => onChange(k, e.target.value)}
+        className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+    </div>
+  )
+}
+
 function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null; onClose: () => void }) {
   const [section, setSection] = useState<'basic' | 'advanced' | 'body' | 'hormones'>('basic')
   const [form, setForm] = useState<HealthFormState>(() => {
@@ -1421,15 +1438,6 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
     onClose()
   }
 
-  const F = ({ label, k, ph }: { label: string; k: string; ph?: string }) => (
-    <div>
-      <div className="text-[11px] font-semibold text-gray-500 mb-1">{label}</div>
-      <input type="number" step="any" placeholder={ph} value={form[k] ?? ''}
-        onChange={e => set(k, e.target.value)}
-        className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
-    </div>
-  )
-
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
       <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1452,69 +1460,69 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
 
         {section === 'basic' && (
           <div className="grid grid-cols-2 gap-3">
-            <F label="ความดัน (บน) mmHg" k="systolic" ph="120" />
-            <F label="ความดัน (ล่าง) mmHg" k="diastolic" ph="80" />
-            <F label="หัวใจ (bpm)" k="heartRate" ph="72" />
-            <F label="น้ำตาล (mg/dL)" k="glucose" ph="95" />
-            <F label="LDL (mg/dL)" k="ldl" ph="100" />
-            <F label="HDL (mg/dL)" k="hdl" ph="65" />
-            <F label="Triglycerides" k="triglycerides" ph="120" />
-            <F label="Cholesterol รวม" k="totalCholesterol" ph="180" />
-            <F label="HbA1c (%)" k="hba1c" ph="5.4" />
-            <F label="Creatinine" k="creatinine" ph="0.8" />
+            <HealthRecordField form={form} onChange={set} label="ความดัน (บน) mmHg" k="systolic" ph="120" />
+            <HealthRecordField form={form} onChange={set} label="ความดัน (ล่าง) mmHg" k="diastolic" ph="80" />
+            <HealthRecordField form={form} onChange={set} label="หัวใจ (bpm)" k="heartRate" ph="72" />
+            <HealthRecordField form={form} onChange={set} label="น้ำตาล (mg/dL)" k="glucose" ph="95" />
+            <HealthRecordField form={form} onChange={set} label="LDL (mg/dL)" k="ldl" ph="100" />
+            <HealthRecordField form={form} onChange={set} label="HDL (mg/dL)" k="hdl" ph="65" />
+            <HealthRecordField form={form} onChange={set} label="Triglycerides" k="triglycerides" ph="120" />
+            <HealthRecordField form={form} onChange={set} label="Cholesterol รวม" k="totalCholesterol" ph="180" />
+            <HealthRecordField form={form} onChange={set} label="HbA1c (%)" k="hba1c" ph="5.4" />
+            <HealthRecordField form={form} onChange={set} label="Creatinine" k="creatinine" ph="0.8" />
           </div>
         )}
         {section === 'advanced' && (
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ไขมัน + เบาหวาน</div>
-            <F label="ApoB (mg/dL)" k="apoB" ph="80" />
-            <F label="Lp(a) (mg/dL)" k="lpA" ph="15" />
-            <F label="Fasting Insulin" k="fastingInsulin" ph="5" />
+            <HealthRecordField form={form} onChange={set} label="ApoB (mg/dL)" k="apoB" ph="80" />
+            <HealthRecordField form={form} onChange={set} label="Lp(a) (mg/dL)" k="lpA" ph="15" />
+            <HealthRecordField form={form} onChange={set} label="Fasting Insulin" k="fastingInsulin" ph="5" />
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">การอักเสบ</div>
-            <F label="hs-CRP (mg/L)" k="hsCrp" ph="0.5" />
-            <F label="Homocysteine (µmol/L)" k="homocysteine" ph="8" />
-            <F label="Omega-3 Index (%)" k="omega3Index" ph="8" />
+            <HealthRecordField form={form} onChange={set} label="hs-CRP (mg/L)" k="hsCrp" ph="0.5" />
+            <HealthRecordField form={form} onChange={set} label="Homocysteine (µmol/L)" k="homocysteine" ph="8" />
+            <HealthRecordField form={form} onChange={set} label="Omega-3 Index (%)" k="omega3Index" ph="8" />
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ตับ + ไต</div>
-            <F label="ALT (U/L)" k="alt" ph="20" />
-            <F label="AST (U/L)" k="ast" ph="20" />
-            <F label="GGT (U/L)" k="ggt" ph="20" />
-            <F label="eGFR" k="egfr" ph="90" />
-            <F label="กรดยูริก" k="uricAcid" ph="5" />
+            <HealthRecordField form={form} onChange={set} label="ALT (U/L)" k="alt" ph="20" />
+            <HealthRecordField form={form} onChange={set} label="AST (U/L)" k="ast" ph="20" />
+            <HealthRecordField form={form} onChange={set} label="GGT (U/L)" k="ggt" ph="20" />
+            <HealthRecordField form={form} onChange={set} label="eGFR" k="egfr" ph="90" />
+            <HealthRecordField form={form} onChange={set} label="กรดยูริก" k="uricAcid" ph="5" />
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">ไทรอยด์ + ฮอร์โมน Longevity</div>
-            <F label="TSH (µIU/mL)" k="tsh" ph="1.5" />
-            <F label="DHEA-S (µg/dL)" k="dheaS" ph="200" />
-            <F label="IGF-1 (ng/mL)" k="igf1" ph="150" />
-            <F label="Cortisol AM (µg/dL)" k="cortisol" ph="15" />
-            <F label="CAC Score" k="cacScore" ph="0" />
+            <HealthRecordField form={form} onChange={set} label="TSH (µIU/mL)" k="tsh" ph="1.5" />
+            <HealthRecordField form={form} onChange={set} label="DHEA-S (µg/dL)" k="dheaS" ph="200" />
+            <HealthRecordField form={form} onChange={set} label="IGF-1 (ng/mL)" k="igf1" ph="150" />
+            <HealthRecordField form={form} onChange={set} label="Cortisol AM (µg/dL)" k="cortisol" ph="15" />
+            <HealthRecordField form={form} onChange={set} label="CAC Score" k="cacScore" ph="0" />
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">วิตามิน + แร่ธาตุ</div>
-            <F label="Vitamin D (ng/mL)" k="vitaminD" ph="60" />
-            <F label="Vitamin B12 (pg/mL)" k="vitaminB12" ph="500" />
-            <F label="Vitamin B6 (ng/mL)" k="vitaminB6" ph="30" />
-            <F label="Magnesium (mg/dL)" k="magnesium" ph="2.1" />
-            <F label="Ferritin (ng/mL)" k="ferritin" ph="60" />
-            <F label="Hemoglobin (g/dL)" k="hemoglobin" ph="13.5" />
+            <HealthRecordField form={form} onChange={set} label="Vitamin D (ng/mL)" k="vitaminD" ph="60" />
+            <HealthRecordField form={form} onChange={set} label="Vitamin B12 (pg/mL)" k="vitaminB12" ph="500" />
+            <HealthRecordField form={form} onChange={set} label="Vitamin B6 (ng/mL)" k="vitaminB6" ph="30" />
+            <HealthRecordField form={form} onChange={set} label="Magnesium (mg/dL)" k="magnesium" ph="2.1" />
+            <HealthRecordField form={form} onChange={set} label="Ferritin (ng/mL)" k="ferritin" ph="60" />
+            <HealthRecordField form={form} onChange={set} label="Hemoglobin (g/dL)" k="hemoglobin" ph="13.5" />
           </div>
         )}
         {section === 'body' && (
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">Body Composition</div>
-            <F label="น้ำหนัก (กก.)" k="weightKg" ph="60" />
-            <F label="ไขมันร่างกาย (%)" k="bodyFatPct" ph="22" />
-            <F label="มวลกล้ามเนื้อ (กก.)" k="muscleMassKg" ph="40" />
-            <F label="รอบเอว (ซม.)" k="waistCm" ph="70" />
-            <F label="Bone Density (T-score)" k="boneDensityTScore" ph="0.5" />
+            <HealthRecordField form={form} onChange={set} label="น้ำหนัก (กก.)" k="weightKg" ph="60" />
+            <HealthRecordField form={form} onChange={set} label="ไขมันร่างกาย (%)" k="bodyFatPct" ph="22" />
+            <HealthRecordField form={form} onChange={set} label="มวลกล้ามเนื้อ (กก.)" k="muscleMassKg" ph="40" />
+            <HealthRecordField form={form} onChange={set} label="รอบเอว (ซม.)" k="waistCm" ph="70" />
+            <HealthRecordField form={form} onChange={set} label="Bone Density (T-score)" k="boneDensityTScore" ph="0.5" />
             <div className="col-span-2 text-[11px] font-bold text-indigo-600 uppercase tracking-wide mt-1">สมรรถภาพร่างกาย</div>
-            <F label="Grip Strength (กก.)" k="gripStrength" ph="28" />
-            <F label="MoCA Score (/30)" k="mocaScore" ph="27" />
+            <HealthRecordField form={form} onChange={set} label="Grip Strength (กก.)" k="gripStrength" ph="28" />
+            <HealthRecordField form={form} onChange={set} label="MoCA Score (/30)" k="mocaScore" ph="27" />
           </div>
         )}
         {section === 'hormones' && (
           <div className="grid grid-cols-2 gap-3">
-            <F label="Estradiol (pg/mL)" k="estradiol" ph="150" />
-            <F label="Progesterone (ng/mL)" k="progesterone" ph="10" />
-            <F label="FSH (mIU/mL)" k="fsh" ph="8" />
-            <F label="LH (mIU/mL)" k="lh" ph="8" />
-            <F label="Testosterone (ng/dL)" k="testosterone" ph="30" />
+            <HealthRecordField form={form} onChange={set} label="Estradiol (pg/mL)" k="estradiol" ph="150" />
+            <HealthRecordField form={form} onChange={set} label="Progesterone (ng/mL)" k="progesterone" ph="10" />
+            <HealthRecordField form={form} onChange={set} label="FSH (mIU/mL)" k="fsh" ph="8" />
+            <HealthRecordField form={form} onChange={set} label="LH (mIU/mL)" k="lh" ph="8" />
+            <HealthRecordField form={form} onChange={set} label="Testosterone (ng/dL)" k="testosterone" ph="30" />
           </div>
         )}
 
