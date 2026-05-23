@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
-import { fetchCalendarEvents, parseDividendEvents, silentRefreshGoogleToken } from '../api/google'
+import { fetchCalendarEvents, parseDividendEvents, silentRefreshGoogleToken, signInWithGoogle } from '../api/google'
 import type { ParsedDividendEvent } from '../api/google'
 import { formatCurrency } from '../utils/calculations'
 
@@ -38,6 +38,7 @@ export default function Calendar() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tokenExpired, setTokenExpired] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
   const [viewDate, setViewDate] = useState(new Date())
   const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set())
   const [syncing, setSyncing] = useState<string | null>(null)
@@ -106,6 +107,35 @@ export default function Calendar() {
       return true
     } catch {
       return false
+    }
+  }
+
+  async function reconnectGoogle() {
+    const settings = await db.settings.toArray().then(r => r[0])
+    if (!settings?.googleClientId) { navigate('/settings'); return }
+    setReconnecting(true)
+    try {
+      const { accessToken, email } = await signInWithGoogle(settings.googleClientId)
+      const existing = await db.googleTokens.toArray().then(r => r[0])
+      const tokenData = {
+        accessToken,
+        email,
+        expiresAt: Date.now() + 3600 * 1000,
+        scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly',
+      }
+      if (existing?.id) {
+        await db.googleTokens.update(existing.id, tokenData)
+      } else {
+        await db.googleTokens.add(tokenData)
+      }
+      setTokenExpired(false)
+      await loadEvents(accessToken)
+    } catch (e: any) {
+      if (e.message !== 'Popup closed') {
+        setError('เชื่อมต่อไม่สำเร็จ: ' + (e.message ?? ''))
+      }
+    } finally {
+      setReconnecting(false)
     }
   }
 
@@ -259,28 +289,15 @@ export default function Calendar() {
             {error && <div className="mx-4 mt-3 bg-red-50 rounded-xl p-3 text-[13px] text-red-600">❌ {error}</div>}
             {tokenExpired && (
               <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Session หมดอายุ</div>
-                <div className="text-[13px] text-amber-700 mb-3">ลอง refresh อัตโนมัติแล้วแต่ไม่สำเร็จ<br/>กรุณา Sign In ใหม่ใน Settings</div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      setTokenExpired(false)
-                      setLoading(true)
-                      const ok = await trySilentRefresh()
-                      setLoading(false)
-                      if (!ok) setTokenExpired(true)
-                    }}
-                    className="flex-1 bg-white border border-amber-400 text-amber-700 text-[13px] font-bold px-3 py-2 rounded-xl active:scale-95"
-                  >
-                    🔄 ลองใหม่
-                  </button>
-                  <button
-                    onClick={() => navigate('/settings')}
-                    className="flex-1 bg-amber-600 text-white text-[13px] font-bold px-3 py-2 rounded-xl active:scale-95"
-                  >
-                    ไปที่ Settings →
-                  </button>
-                </div>
+                <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Token Google หมดอายุ</div>
+                <div className="text-[13px] text-amber-700 mb-3">กรุณา Sign In ใหม่เพื่อดูปฏิทิน</div>
+                <button
+                  onClick={reconnectGoogle}
+                  disabled={reconnecting}
+                  className="w-full bg-amber-600 text-white text-[14px] font-bold px-4 py-2.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {reconnecting ? '⏳ กำลังเชื่อมต่อ...' : '🔗 เชื่อมต่อ Google ใหม่'}
+                </button>
               </div>
             )}
 
