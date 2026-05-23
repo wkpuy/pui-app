@@ -108,6 +108,75 @@ export default function Investment() {
     if (selectedId === id) setSelectedId(null)
   }
 
+  function generatePortfolioText(): string {
+    if (!investments) return ''
+    const fmt = (n: number) => Math.round(n).toLocaleString('th-TH')
+    const gainLabel = totalGain >= 0 ? 'กำไร' : 'ดิ่งลง'
+    const gainSign = totalGain >= 0 ? '+' : ''
+    const lines: string[] = []
+
+    lines.push(`- มูลค่าพอร์ตปัจจุบัน: ${fmt(totalValue)} บาท (ต้นทุน ${fmt(totalCost)} บาท, ${gainLabel} ${gainSign}${gainPct.toFixed(1)}%)`)
+
+    const stocks = investments.filter(i => i.type === 'thai_stock' || i.type === 'foreign_stock' || i.type === 'fund')
+    const insurance = investments.filter(i => i.type === 'insurance')
+    const savings = investments.filter(i => i.type === 'savings')
+    const others = investments.filter(i => i.type === 'other')
+
+    if (stocks.length > 0) {
+      lines.push('- หุ้น/กองทุนในพอร์ต:')
+      for (const inv of stocks) {
+        const costU = inv.costPerUnit ?? (inv.shares && inv.shares > 0 ? inv.costBasis / inv.shares : inv.costBasis)
+        const priceU = inv.currentPricePerUnit ?? (inv.shares && inv.shares > 0 ? inv.currentValue / inv.shares : inv.currentValue)
+        const pct = inv.costBasis > 0 ? ((inv.currentValue - inv.costBasis) / inv.costBasis) * 100 : 0
+        const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
+        const label = inv.ticker ?? inv.name
+        if (inv.shares && inv.shares > 0) {
+          lines.push(`  * ${label}: ${inv.shares.toLocaleString()} หน่วย, ทุน ${Math.round(costU)}, ปัจจุบัน ${Math.round(priceU)} (${pctStr})`)
+        } else {
+          lines.push(`  * ${label}: ทุน ${fmt(inv.costBasis)}, ปัจจุบัน ${fmt(inv.currentValue)} (${pctStr})`)
+        }
+      }
+    }
+
+    if (insurance.length > 0) {
+      lines.push('- ประกัน:')
+      for (const inv of insurance) {
+        const freq = inv.insuranceDetails?.paymentFrequency === 'monthly' ? 'เดือน' : inv.insuranceDetails?.paymentFrequency === 'quarterly' ? 'ไตรมาส' : inv.insuranceDetails?.paymentFrequency === 'semi_annual' ? '6 เดือน' : 'ปี'
+        const premium = inv.insuranceDetails?.premiumAmount ?? 0
+        lines.push(`  * ${inv.name}: เบี้ย ${fmt(premium)} บาท/${freq}`)
+      }
+    }
+
+    if (savings.length > 0) {
+      lines.push('- ออมทรัพย์:')
+      for (const inv of savings) {
+        lines.push(`  * ${inv.name}: ${fmt(inv.currentValue)} บาท`)
+      }
+    }
+
+    if (others.length > 0) {
+      lines.push('- อื่นๆ:')
+      for (const inv of others) {
+        const pct = inv.costBasis > 0 ? ((inv.currentValue - inv.costBasis) / inv.costBasis) * 100 : 0
+        lines.push(`  * ${inv.name}: ${fmt(inv.currentValue)} บาท (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`)
+      }
+    }
+
+    return lines.join('\n')
+  }
+
+  async function copyPortfolio() {
+    const text = generatePortfolioText()
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = text; document.body.appendChild(el); el.select()
+      document.execCommand('copy'); document.body.removeChild(el)
+    }
+    setToastMsg({ text: '📋 คัดลอกข้อมูลพอร์ตแล้ว', type: 'success' })
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <Toast message={toastMsg?.text ?? null} type={toastMsg?.type} onDone={() => setToastMsg(null)} />
@@ -130,13 +199,22 @@ export default function Investment() {
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => syncPrices(false)}
-              disabled={syncing}
-              className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1"
-            >
-              {syncing ? '⏳' : '🔄'} {syncing ? 'กำลังอัพเดท...' : 'Sync ราคา'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={copyPortfolio}
+                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 flex items-center gap-1"
+                title="คัดลอกข้อมูลพอร์ต"
+              >
+                📋 Copy
+              </button>
+              <button
+                onClick={() => syncPrices(false)}
+                disabled={syncing}
+                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1"
+              >
+                {syncing ? '⏳' : '🔄'} {syncing ? 'อัพเดท...' : 'Sync'}
+              </button>
+            </div>
           </div>
           {lastSync && <div className="text-[11px] opacity-60 mt-1">อัพเดทล่าสุด {lastSync}</div>}
         </div>
