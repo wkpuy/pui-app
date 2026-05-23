@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { db } from '../db'
-import { silentRefreshGoogleToken } from '../api/google'
+import { refreshGoogleTokenViaWorker } from '../api/google'
 
 const REFRESH_THRESHOLD_MS = 10 * 60 * 1000  // refresh when < 10 min left
 const CHECK_INTERVAL_MS    = 15 * 60 * 1000  // check every 15 min
 
-let refreshInProgress = false  // guard against concurrent runs
+let refreshInProgress = false
 
 async function attemptSilentRefresh() {
   if (refreshInProgress) return
@@ -15,20 +15,26 @@ async function attemptSilentRefresh() {
       db.googleTokens.toArray().then(r => r[0]),
       db.settings.toArray().then(r => r[0]),
     ])
-    if (!row?.accessToken || !settings?.googleClientId) return
+
+    // Requires refresh_token + client credentials (new PKCE flow)
+    if (!row?.refreshToken || !settings?.googleClientId || !settings?.googleClientSecret) return
 
     const timeLeft = row.expiresAt - Date.now()
-    if (timeLeft > REFRESH_THRESHOLD_MS) return  // still has plenty of life
+    if (timeLeft > REFRESH_THRESHOLD_MS) return
 
-    const newToken = await silentRefreshGoogleToken(settings.googleClientId, row.scope ?? 'calendar gmail drive')
+    const newToken = await refreshGoogleTokenViaWorker(
+      row.refreshToken,
+      settings.googleClientId,
+      settings.googleClientSecret
+    )
     if (newToken && row.id) {
       await db.googleTokens.update(row.id, {
         accessToken: newToken,
         expiresAt: Date.now() + 3600 * 1000,
       })
-      console.log('[TokenRefresh] silent refresh ✅')
+      console.log('[TokenRefresh] auto-refreshed via worker ✅')
     } else {
-      console.warn('[TokenRefresh] silent refresh failed — user may need to re-sign in')
+      console.warn('[TokenRefresh] worker refresh failed — user may need to re-sign in')
     }
   } catch (e) {
     console.warn('[TokenRefresh] error', e)
@@ -39,17 +45,11 @@ async function attemptSilentRefresh() {
 
 export function useTokenAutoRefresh() {
   useEffect(() => {
-    // Run once immediately on mount
     attemptSilentRefresh()
-
-    // Run on a 15-minute interval
     const interval = setInterval(attemptSilentRefresh, CHECK_INTERVAL_MS)
-
-    // Also run whenever the user returns to the app (tab/app focus)
     const onVisible = () => { if (!document.hidden) attemptSilentRefresh() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
-
     return () => {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisible)

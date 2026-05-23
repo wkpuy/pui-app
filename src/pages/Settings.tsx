@@ -26,6 +26,7 @@ export default function Settings() {
   const [profileForm, setProfileForm] = useState({ nickname: '', fullName: '', dob: '', gender: 'male' as 'male' | 'female', heightCm: '' })
   const [geminiKey, setGeminiKey] = useState('')
   const [googleClientId, setGoogleClientId] = useState('')
+  const [googleClientSecret, setGoogleClientSecret] = useState('')
   const [syncStatus, setSyncStatus] = useState('')
   const [driveBackup, setDriveBackup] = useState<{ id: string; modifiedTime: string } | null>(null)
   const [syncMonths, setSyncMonths] = useState(1)
@@ -97,6 +98,7 @@ export default function Settings() {
     if (profile) setProfileForm({ nickname: profile.nickname, fullName: profile.fullName, dob: profile.dob, gender: profile.gender, heightCm: profile.heightCm.toString() })
     if (settings?.geminiApiKey) setGeminiKey(settings.geminiApiKey)
     if (settings?.googleClientId) setGoogleClientId(settings.googleClientId)
+    if (settings?.googleClientSecret) setGoogleClientSecret(settings.googleClientSecret)
     setWhoopConnected(!!loadWhoopTokens())
   }, [profile, settings])
 
@@ -110,7 +112,7 @@ export default function Settings() {
 
   async function saveApiKeys() {
     const sid = settings?.id
-    const data = { geminiApiKey: geminiKey, googleClientId, defaultCurrency: 'THB' as const, onboardingDone: true }
+    const data = { geminiApiKey: geminiKey, googleClientId, googleClientSecret, defaultCurrency: 'THB' as const, onboardingDone: true }
     if (sid) await db.settings.update(sid, data)
     else await db.settings.add(data)
     setSyncStatus('บันทึก API Keys แล้ว ✓')
@@ -119,15 +121,21 @@ export default function Settings() {
 
   async function connectGoogle() {
     if (!googleClientId) { setSyncStatus('กรุณากรอก Google Client ID ก่อน'); return }
+    if (!googleClientSecret) { setSyncStatus('กรุณากรอก Google Client Secret ก่อน'); return }
     try {
       setSyncStatus('กำลังเชื่อมต่อ Google...')
-      const { accessToken, email } = await signInWithGoogle(googleClientId)
+      const { accessToken, refreshToken, email } = await signInWithGoogle(googleClientId, googleClientSecret)
       const existing = await db.googleTokens.toArray().then(r => r[0])
-      const tokenData = { accessToken, expiresAt: Date.now() + 3600 * 1000, scope: 'calendar gmail drive', userEmail: email }
+      const scope = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly'
+      const tokenData = { accessToken, refreshToken, expiresAt: Date.now() + 3600 * 1000, scope, userEmail: email }
       if (existing?.id) await db.googleTokens.update(existing.id, tokenData)
       else await db.googleTokens.add(tokenData)
-      setSyncStatus(`✓ เชื่อมต่อ Google แล้ว (${email})`)
-      // Check for Drive backup (for new device restore)
+      // Save client secret so auto-refresh can use it
+      const sid = settings?.id
+      const keyData = { geminiApiKey: geminiKey, googleClientId, googleClientSecret, defaultCurrency: 'THB' as const, onboardingDone: true }
+      if (sid) await db.settings.update(sid, keyData)
+      else await db.settings.add(keyData)
+      setSyncStatus(`✓ เชื่อมต่อ Google แล้ว (${email}) — auto-refresh พร้อมใช้`)
       try {
         const backup = await findDriveBackupFile(accessToken)
         if (backup) setDriveBackup(backup)
@@ -373,7 +381,12 @@ export default function Settings() {
                 <div className="text-[12px] font-semibold text-gray-500 mb-1">Google OAuth Client ID</div>
                 <input type="text" placeholder="xxx.apps.googleusercontent.com" value={googleClientId} onChange={e => setGoogleClientId(e.target.value)}
                   className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
-                <div className="text-[11px] text-gray-400 mt-1">สร้างที่ Google Cloud Console</div>
+              </div>
+              <div>
+                <div className="text-[12px] font-semibold text-gray-500 mb-1">Google OAuth Client Secret</div>
+                <input type="password" placeholder="GOCSPX-..." value={googleClientSecret} onChange={e => setGoogleClientSecret(e.target.value)}
+                  className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+                <div className="text-[11px] text-gray-400 mt-1">ต้องใช้เพื่อ auto-refresh token อัตโนมัติ (สร้างที่ Google Cloud Console)</div>
               </div>
               <button onClick={saveApiKeys} className="bg-indigo-600 text-white font-bold py-3 rounded-xl text-sm active:scale-95">
                 บันทึก Keys

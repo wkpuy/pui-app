@@ -333,6 +333,7 @@ export interface AppSettings {
   id?: number;
   geminiApiKey?: string;
   googleClientId?: string;
+  googleClientSecret?: string;
   retirementMonthlyBudget?: number;
   defaultCurrency: "THB";
   onboardingDone: boolean;

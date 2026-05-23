@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
-import { fetchCalendarEvents, parseDividendEvents, silentRefreshGoogleToken, signInWithGoogle } from '../api/google'
+import { fetchCalendarEvents, parseDividendEvents, signInWithGoogle } from '../api/google'
 import type { ParsedDividendEvent } from '../api/google'
 import { formatCurrency } from '../utils/calculations'
 
@@ -68,9 +68,7 @@ export default function Calendar() {
       setDividendEvents(parseDividendEvents(raw))
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') {
-        // Try silent refresh automatically before showing error
-        const refreshed = await trySilentRefresh()
-        if (!refreshed) setTokenExpired(true)
+        setTokenExpired(true)
       } else {
         setError(e.message ?? 'ไม่สามารถโหลดปฏิทินได้')
       }
@@ -79,61 +77,21 @@ export default function Calendar() {
     }
   }
 
-  async function trySilentRefresh(): Promise<boolean> {
-    try {
-      const [settings, tokenRow] = await Promise.all([
-        db.settings.toArray().then(r => r[0]),
-        db.googleTokens.toArray().then(r => r[0]),
-      ])
-      if (!settings?.googleClientId || !tokenRow?.id) return false
-
-      const newToken = await silentRefreshGoogleToken(
-        settings.googleClientId,
-        tokenRow.scope ?? 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly'
-      )
-      if (!newToken) return false
-
-      await db.googleTokens.update(tokenRow.id, {
-        accessToken: newToken,
-        expiresAt: Date.now() + 3600 * 1000,
-      })
-
-      // Retry loading with the new token
-      const startOfMonth = new Date(year, month, 1)
-      const endOfMonth = new Date(year, month + 1, 0)
-      const raw = await fetchCalendarEvents(newToken, startOfMonth.toISOString(), endOfMonth.toISOString())
-      setEvents(raw)
-      setDividendEvents(parseDividendEvents(raw))
-      return true
-    } catch {
-      return false
-    }
-  }
-
   async function reconnectGoogle() {
     const settings = await db.settings.toArray().then(r => r[0])
-    if (!settings?.googleClientId) { navigate('/settings'); return }
+    if (!settings?.googleClientId || !settings?.googleClientSecret) { navigate('/settings'); return }
     setReconnecting(true)
     try {
-      const { accessToken, email } = await signInWithGoogle(settings.googleClientId)
+      const { accessToken, refreshToken, email } = await signInWithGoogle(settings.googleClientId, settings.googleClientSecret)
       const existing = await db.googleTokens.toArray().then(r => r[0])
-      const tokenData = {
-        accessToken,
-        email,
-        expiresAt: Date.now() + 3600 * 1000,
-        scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly',
-      }
-      if (existing?.id) {
-        await db.googleTokens.update(existing.id, tokenData)
-      } else {
-        await db.googleTokens.add(tokenData)
-      }
+      const scope = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly'
+      const tokenData = { accessToken, refreshToken, expiresAt: Date.now() + 3600 * 1000, scope, userEmail: email }
+      if (existing?.id) await db.googleTokens.update(existing.id, tokenData)
+      else await db.googleTokens.add(tokenData)
       setTokenExpired(false)
       await loadEvents(accessToken)
     } catch (e: any) {
-      if (e.message !== 'Popup closed') {
-        setError('เชื่อมต่อไม่สำเร็จ: ' + (e.message ?? ''))
-      }
+      if (e.message !== 'Popup closed') setError('เชื่อมต่อไม่สำเร็จ: ' + (e.message ?? ''))
     } finally {
       setReconnecting(false)
     }

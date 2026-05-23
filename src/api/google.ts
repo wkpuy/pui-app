@@ -5,98 +5,126 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
 
-export async function signInWithGoogle(clientId: string): Promise<{ accessToken: string; email: string }> {
-  return new Promise((resolve, reject) => {
-    const redirectUri = window.location.origin
-    const state = Math.random().toString(36).slice(2)
-    sessionStorage.setItem('oauth_state', state)
+const WORKER_URL = 'https://whoop-proxy.kpnmtu.workers.dev/'
 
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'token',
-      scope: SCOPES,
-      state,
-    })
+// ── PKCE helpers ─────────────────────────────────────────────────────────────
+function generateCodeVerifier(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
 
-    const popup = window.open(
-      `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
-      'google_oauth',
-      'width=500,height=600'
-    )
-
-    const timer = setInterval(async () => {
-      try {
-        if (!popup || popup.closed) {
-          clearInterval(timer)
-          reject(new Error('Popup closed'))
-          return
-        }
-        const url = new URL(popup.location.href)
-        if (url.origin === window.location.origin) {
-          clearInterval(timer)
-          popup.close()
-          const hash = new URLSearchParams(url.hash.slice(1))
-          const accessToken = hash.get('access_token')
-          if (!accessToken) { reject(new Error('No token')); return }
-          // Get user email
-          const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          })
-          const info = await res.json()
-          resolve({ accessToken, email: info.email })
-        }
-      } catch {
-        // still waiting for redirect
-      }
-    }, 500)
-  })
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const data = new TextEncoder().encode(verifier)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
 /**
- * Silent token refresh — opens a tiny hidden popup with prompt=none.
- * Returns a new accessToken if Google session is still active, or null if it needs re-login.
- * Works without any user interaction when the Google session cookie is still valid.
+ * Sign in with Google using PKCE auth-code flow.
+ * Returns accessToken + refreshToken (stored locally for background refresh).
  */
-export async function silentRefreshGoogleToken(clientId: string, scope: string): Promise<string | null> {
-  return new Promise(resolve => {
-    const redirectUri = window.location.origin
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'token',
-      scope,
-      prompt: 'none',
-      include_granted_scopes: 'true',
-    })
+export async function signInWithGoogle(
+  clientId: string,
+  clientSecret: string
+): Promise<{ accessToken: string; refreshToken: string; email: string }> {
+  const codeVerifier = generateCodeVerifier()
+  const codeChallenge = await generateCodeChallenge(codeVerifier)
+  const redirectUri = window.location.origin
+  const state = Math.random().toString(36).slice(2)
+  sessionStorage.setItem('oauth_state', state)
 
-    // Open a 1×1 px window far off-screen — user won't see it
-    const popup = window.open(
-      `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
-      'silent_oauth_refresh',
-      'width=1,height=1,top=-1000,left=-1000,menubar=no,toolbar=no'
-    )
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: SCOPES,
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    access_type: 'offline',
+    prompt: 'consent',
+  })
 
-    if (!popup) { resolve(null); return }
+  const popup = window.open(
+    `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
+    'google_oauth',
+    'width=500,height=600'
+  )
 
+  // Wait for redirect back with auth code
+  const code = await new Promise<string>((resolve, reject) => {
     const timer = setInterval(() => {
       try {
-        if (popup.closed) { clearInterval(timer); resolve(null); return }
+        if (!popup || popup.closed) { clearInterval(timer); reject(new Error('Popup closed')); return }
         const url = new URL(popup.location.href)
         if (url.origin === window.location.origin) {
           clearInterval(timer)
           popup.close()
-          const hash = new URLSearchParams(url.hash.slice(1))
-          resolve(hash.get('access_token'))
+          const code = url.searchParams.get('code')
+          if (!code) { reject(new Error('No code returned')); return }
+          resolve(code)
         }
-      } catch {
-        // still cross-origin (waiting for Google → redirect back)
-      }
-    }, 300)
-
-    // Give up after 15 seconds
-    setTimeout(() => { clearInterval(timer); if (!popup.closed) popup.close(); resolve(null) }, 15000)
+      } catch { /* still cross-origin, keep waiting */ }
+    }, 500)
+    setTimeout(() => { clearInterval(timer); if (popup && !popup.closed) popup.close(); reject(new Error('Timeout')) }, 120000)
   })
+
+  // Exchange code → tokens via Cloudflare Worker (needs client_secret, CORS-blocked from browser)
+  const res = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'google_exchange',
+      code,
+      code_verifier: codeVerifier,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+    }),
+  })
+  const tokens = await res.json()
+  if (!tokens.access_token) throw new Error(tokens.error_description ?? 'Token exchange failed')
+
+  const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  })
+  const info = await userRes.json()
+
+  return {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    email: info.email,
+  }
+}
+
+/**
+ * Refresh access token silently via Cloudflare Worker — no popup, no user interaction.
+ * Returns new accessToken or null if refresh_token is invalid/expired.
+ */
+export async function refreshGoogleTokenViaWorker(
+  refreshToken: string,
+  clientId: string,
+  clientSecret: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'google_refresh',
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    })
+    const data = await res.json()
+    return data.access_token ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function fetchCalendarEvents(accessToken: string, timeMinIso?: string, timeMaxIso?: string) {
