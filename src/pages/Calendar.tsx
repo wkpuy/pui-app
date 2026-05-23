@@ -39,11 +39,13 @@ export default function Calendar() {
   const [error, setError] = useState<string | null>(null)
   const [tokenExpired, setTokenExpired] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
+  const [reconnectError, setReconnectError] = useState<string | null>(null)
   const [viewDate, setViewDate] = useState(new Date())
   const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set())
   const [syncing, setSyncing] = useState<string | null>(null)
 
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
+  const settings = useLiveQuery(() => db.settings.toArray().then(r => r[0]))
   const investments = useLiveQuery(() => db.investments.toArray())
   const existingDividends = useLiveQuery(() => db.dividends.toArray())
 
@@ -78,9 +80,12 @@ export default function Calendar() {
   }
 
   async function reconnectGoogle() {
-    const settings = await db.settings.toArray().then(r => r[0])
-    if (!settings?.googleClientId || !settings?.googleClientSecret) { navigate('/settings'); return }
+    if (!settings?.googleClientId || !settings?.googleClientSecret) {
+      setReconnectError('ยังไม่ได้ตั้งค่า Client Secret — กรุณาไปที่ Settings ก่อน')
+      return
+    }
     setReconnecting(true)
+    setReconnectError(null)
     try {
       const { accessToken, refreshToken, email } = await signInWithGoogle(settings.googleClientId, settings.googleClientSecret)
       const existing = await db.googleTokens.toArray().then(r => r[0])
@@ -89,9 +94,10 @@ export default function Calendar() {
       if (existing?.id) await db.googleTokens.update(existing.id, tokenData)
       else await db.googleTokens.add(tokenData)
       setTokenExpired(false)
+      setReconnectError(null)
       await loadEvents(accessToken)
     } catch (e: any) {
-      if (e.message !== 'Popup closed') setError('เชื่อมต่อไม่สำเร็จ: ' + (e.message ?? ''))
+      setReconnectError(e.message ?? 'เชื่อมต่อไม่สำเร็จ')
     } finally {
       setReconnecting(false)
     }
@@ -246,16 +252,41 @@ export default function Calendar() {
             {loading && <div className="text-center py-4 text-[13px] text-indigo-500">⏳ กำลังโหลด...</div>}
             {error && <div className="mx-4 mt-3 bg-red-50 rounded-xl p-3 text-[13px] text-red-600">❌ {error}</div>}
             {tokenExpired && (
-              <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Token Google หมดอายุ</div>
-                <div className="text-[13px] text-amber-700 mb-3">กรุณา Sign In ใหม่เพื่อดูปฏิทิน</div>
-                <button
-                  onClick={reconnectGoogle}
-                  disabled={reconnecting}
-                  className="w-full bg-amber-600 text-white text-[14px] font-bold px-4 py-2.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {reconnecting ? '⏳ กำลังเชื่อมต่อ...' : '🔗 เชื่อมต่อ Google ใหม่'}
-                </button>
+              <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                <div className="text-[14px] font-bold text-amber-800">🔑 Token Google หมดอายุ</div>
+
+                {!settings?.googleClientSecret ? (
+                  <>
+                    <div className="text-[13px] text-amber-700">
+                      ต้องตั้งค่า <b>Google Client Secret</b> ใน Settings ก่อน เพื่อให้ระบบ refresh token อัตโนมัติได้
+                    </div>
+                    <button
+                      onClick={() => navigate('/settings')}
+                      className="w-full bg-amber-600 text-white text-[14px] font-bold px-4 py-2.5 rounded-xl active:scale-95"
+                    >
+                      ไปที่ Settings →
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-[13px] text-amber-700">กด Sign In ใหม่เพื่อดูปฏิทิน</div>
+                    {reconnectError && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-[12px] text-red-700">
+                        ❌ {reconnectError}
+                        {reconnectError.includes('Client Secret') && (
+                          <button onClick={() => navigate('/settings')} className="ml-2 underline font-semibold">ไป Settings</button>
+                        )}
+                      </div>
+                    )}
+                    <button
+                      onClick={reconnectGoogle}
+                      disabled={reconnecting}
+                      className="w-full bg-amber-600 text-white text-[14px] font-bold px-4 py-2.5 rounded-xl active:scale-95 disabled:opacity-60"
+                    >
+                      {reconnecting ? '⏳ กำลังเชื่อมต่อ...' : '🔗 Sign In Google ใหม่'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

@@ -24,12 +24,17 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 
 /**
  * Sign in with Google using PKCE auth-code flow.
+ * Opens popup IMMEDIATELY (preserving iOS user-gesture), then navigates it after async PKCE setup.
  * Returns accessToken + refreshToken (stored locally for background refresh).
  */
 export async function signInWithGoogle(
   clientId: string,
   clientSecret: string
 ): Promise<{ accessToken: string; refreshToken: string; email: string }> {
+  // ⚠️ Must open popup BEFORE any await — iOS blocks window.open() after async breaks the gesture chain
+  const popup = window.open('about:blank', 'google_oauth', 'width=500,height=600')
+  if (!popup) throw new Error('Popup ถูกบล็อก — กรุณาอนุญาต popup แล้วลองใหม่')
+
   const codeVerifier = generateCodeVerifier()
   const codeChallenge = await generateCodeChallenge(codeVerifier)
   const redirectUri = window.location.origin
@@ -48,11 +53,8 @@ export async function signInWithGoogle(
     prompt: 'consent',
   })
 
-  const popup = window.open(
-    `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
-    'google_oauth',
-    'width=500,height=600'
-  )
+  // Navigate popup to auth URL (after PKCE is ready)
+  popup.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
 
   // Wait for redirect back with auth code
   const code = await new Promise<string>((resolve, reject) => {
