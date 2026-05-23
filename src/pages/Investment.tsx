@@ -111,54 +111,51 @@ export default function Investment() {
   function generatePortfolioText(): string {
     if (!investments) return ''
     const fmt = (n: number) => Math.round(n).toLocaleString('th-TH')
-    const gainLabel = totalGain >= 0 ? 'กำไร' : 'ดิ่งลง'
-    const gainSign = totalGain >= 0 ? '+' : ''
+
+    const stocks = investments.filter(i => i.type === 'thai_stock' || i.type === 'foreign_stock')
+    if (stocks.length === 0) return 'ไม่มีข้อมูลหุ้น'
+
+    const stockCost = stocks.reduce((s, i) => s + i.costBasis, 0)
+    const stockValue = stocks.reduce((s, i) => s + i.currentValue, 0)
+    const stockGain = stockValue - stockCost
+    const stockPct = stockCost > 0 ? (stockGain / stockCost) * 100 : 0
+    const gainLabel = stockGain >= 0 ? 'กำไร' : 'ขาดทุน'
+
     const lines: string[] = []
+    lines.push(`- มูลค่าพอร์ตหุ้นปัจจุบัน: ${fmt(stockValue)} บาท (ต้นทุน ${fmt(stockCost)} บาท, ${gainLabel} ${stockGain >= 0 ? '+' : ''}${stockPct.toFixed(1)}%)`)
+    lines.push('- หุ้นในพอร์ต:')
 
-    lines.push(`- มูลค่าพอร์ตปัจจุบัน: ${fmt(totalValue)} บาท (ต้นทุน ${fmt(totalCost)} บาท, ${gainLabel} ${gainSign}${gainPct.toFixed(1)}%)`)
+    for (const inv of stocks) {
+      const costU = inv.costPerUnit ?? (inv.shares && inv.shares > 0 ? inv.costBasis / inv.shares : inv.costBasis)
+      const priceU = inv.currentPricePerUnit ?? (inv.shares && inv.shares > 0 ? inv.currentValue / inv.shares : inv.currentValue)
+      const pct = inv.costBasis > 0 ? ((inv.currentValue - inv.costBasis) / inv.costBasis) * 100 : 0
+      const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
+      const label = inv.ticker ?? inv.name
 
-    const stocks = investments.filter(i => i.type === 'thai_stock' || i.type === 'foreign_stock' || i.type === 'fund')
-    const insurance = investments.filter(i => i.type === 'insurance')
-    const savings = investments.filter(i => i.type === 'savings')
-    const others = investments.filter(i => i.type === 'other')
+      if (inv.shares && inv.shares > 0) {
+        lines.push(`  * ${label}: ${inv.shares.toLocaleString()} หน่วย, ทุน ${Math.round(costU)}, ปัจจุบัน ${Math.round(priceU)} (${pctStr})`)
+      } else {
+        lines.push(`  * ${label}: ทุน ${fmt(inv.costBasis)}, ปัจจุบัน ${fmt(inv.currentValue)} (${pctStr})`)
+      }
 
-    if (stocks.length > 0) {
-      lines.push('- หุ้น/กองทุนในพอร์ต:')
-      for (const inv of stocks) {
-        const costU = inv.costPerUnit ?? (inv.shares && inv.shares > 0 ? inv.costBasis / inv.shares : inv.costBasis)
-        const priceU = inv.currentPricePerUnit ?? (inv.shares && inv.shares > 0 ? inv.currentValue / inv.shares : inv.currentValue)
-        const pct = inv.costBasis > 0 ? ((inv.currentValue - inv.costBasis) / inv.costBasis) * 100 : 0
-        const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
-        const label = inv.ticker ?? inv.name
-        if (inv.shares && inv.shares > 0) {
-          lines.push(`  * ${label}: ${inv.shares.toLocaleString()} หน่วย, ทุน ${Math.round(costU)}, ปัจจุบัน ${Math.round(priceU)} (${pctStr})`)
-        } else {
-          lines.push(`  * ${label}: ทุน ${fmt(inv.costBasis)}, ปัจจุบัน ${fmt(inv.currentValue)} (${pctStr})`)
+      // Dividend history grouped by year
+      const divs = (dividends ?? []).filter(d => d.investmentId === inv.id)
+      if (divs.length > 0) {
+        // Group by year (Buddhist era for display)
+        const byYear: Record<number, Dividend[]> = {}
+        for (const d of divs) {
+          const yr = parseInt(d.date.slice(0, 4))
+          if (!byYear[yr]) byYear[yr] = []
+          byYear[yr].push(d)
         }
-      }
-    }
-
-    if (insurance.length > 0) {
-      lines.push('- ประกัน:')
-      for (const inv of insurance) {
-        const freq = inv.insuranceDetails?.paymentFrequency === 'monthly' ? 'เดือน' : inv.insuranceDetails?.paymentFrequency === 'quarterly' ? 'ไตรมาส' : inv.insuranceDetails?.paymentFrequency === 'semi_annual' ? '6 เดือน' : 'ปี'
-        const premium = inv.insuranceDetails?.premiumAmount ?? 0
-        lines.push(`  * ${inv.name}: เบี้ย ${fmt(premium)} บาท/${freq}`)
-      }
-    }
-
-    if (savings.length > 0) {
-      lines.push('- ออมทรัพย์:')
-      for (const inv of savings) {
-        lines.push(`  * ${inv.name}: ${fmt(inv.currentValue)} บาท`)
-      }
-    }
-
-    if (others.length > 0) {
-      lines.push('- อื่นๆ:')
-      for (const inv of others) {
-        const pct = inv.costBasis > 0 ? ((inv.currentValue - inv.costBasis) / inv.costBasis) * 100 : 0
-        lines.push(`  * ${inv.name}: ${fmt(inv.currentValue)} บาท (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`)
+        const yearsSorted = Object.keys(byYear).map(Number).sort((a, b) => b - a)
+        const parts = yearsSorted.map(yr => {
+          const list = byYear[yr]
+          const total = list.reduce((s, d) => s + d.totalReceived, 0)
+          const times = list.length
+          return `${yr + 543}: ${fmt(total)} บาท (${times} ครั้ง)`
+        })
+        lines.push(`    ปันผลที่ได้: ${parts.join(' | ')}`)
       }
     }
 
