@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
@@ -172,8 +172,7 @@ export default function Lumen() {
         )}
         {tab === 'log' && (
           <LogTab
-            todayEntry={todayEntry}
-            todayWeight={todayWeight}
+            allDaily={allDaily ?? []}
             onSaved={() => setTab('dashboard')}
           />
         )}
@@ -392,42 +391,72 @@ function DashboardTab({
 
 // ─── Log Tab ────────────────────────────────────────────────────────────────────
 function LogTab({
-  todayEntry, todayWeight, onSaved
+  allDaily, onSaved
 }: {
-  todayEntry?: LumenEntry
-  todayWeight?: number
+  allDaily: HealthDaily[]
   onSaved: () => void
 }) {
-  const todayStr = today()
+  const [selectedDate, setSelectedDate] = useState(today())
 
-  const [form, setForm] = useState<Partial<LumenEntry>>(() => ({
-    date: todayStr,
-    morningScore: todayEntry?.morningScore,
-    morningTime: todayEntry?.morningTime ?? nowTime(),
-    morningRemark: todayEntry?.morningRemark ?? '',
-    didWorkout: todayEntry?.didWorkout ?? false,
-    workoutType: todayEntry?.workoutType ?? 'cardio',
-    workoutMinutes: todayEntry?.workoutMinutes,
-    preWorkoutScore: todayEntry?.preWorkoutScore,
-    preWorkoutRemark: todayEntry?.preWorkoutRemark ?? '',
-    postWorkoutScore: todayEntry?.postWorkoutScore,
-    postWorkoutRemark: todayEntry?.postWorkoutRemark ?? '',
-    afternoonScore: todayEntry?.afternoonScore,
-    afternoonTime: todayEntry?.afternoonTime ?? nowTime(),
-    afternoonRemark: todayEntry?.afternoonRemark ?? '',
-    nightScore: todayEntry?.nightScore,
-    nightTime: todayEntry?.nightTime ?? nowTime(),
-    nightRemark: todayEntry?.nightRemark ?? '',
-  }))
+  const dateEntry = useLiveQuery(
+    () => db.lumenEntries.where('date').equals(selectedDate).first(),
+    [selectedDate]
+  )
+
+  const dateWeight = useMemo(
+    () => allDaily.find(h => h.date === selectedDate)?.weightKg,
+    [allDaily, selectedDate]
+  )
+
+  const emptyForm = (): Partial<LumenEntry> => ({
+    date: selectedDate,
+    morningTime: nowTime(),
+    afternoonTime: nowTime(),
+    nightTime: nowTime(),
+    didWorkout: false,
+    workoutType: 'cardio',
+  })
+
+  const [form, setForm] = useState<Partial<LumenEntry>>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Reset form when date changes
+  useEffect(() => {
+    setForm(emptyForm())
+  }, [selectedDate])
+
+  // Populate form when entry loads for selected date
+  useEffect(() => {
+    if (dateEntry) {
+      setForm({
+        date: selectedDate,
+        morningScore: dateEntry.morningScore,
+        morningTime: dateEntry.morningTime ?? nowTime(),
+        morningRemark: dateEntry.morningRemark ?? '',
+        didWorkout: dateEntry.didWorkout ?? false,
+        workoutType: dateEntry.workoutType ?? 'cardio',
+        workoutMinutes: dateEntry.workoutMinutes,
+        preWorkoutScore: dateEntry.preWorkoutScore,
+        preWorkoutRemark: dateEntry.preWorkoutRemark ?? '',
+        postWorkoutScore: dateEntry.postWorkoutScore,
+        postWorkoutRemark: dateEntry.postWorkoutRemark ?? '',
+        afternoonScore: dateEntry.afternoonScore,
+        afternoonTime: dateEntry.afternoonTime ?? nowTime(),
+        afternoonRemark: dateEntry.afternoonRemark ?? '',
+        nightScore: dateEntry.nightScore,
+        nightTime: dateEntry.nightTime ?? nowTime(),
+        nightRemark: dateEntry.nightRemark ?? '',
+      })
+    }
+  }, [dateEntry?.id, selectedDate])
 
   const set = (k: keyof LumenEntry, v: any) => setForm(f => ({ ...f, [k]: v }))
 
   const handleSave = async () => {
     setSaving(true)
     const data: LumenEntry = {
-      date: todayStr,
+      date: selectedDate,
       morningScore: form.morningScore,
       morningTime: form.morningTime || undefined,
       morningRemark: form.morningRemark || undefined,
@@ -445,8 +474,8 @@ function LogTab({
       nightTime: form.nightTime || undefined,
       nightRemark: form.nightRemark || undefined,
     }
-    if (todayEntry?.id) {
-      await db.lumenEntries.update(todayEntry.id, data)
+    if (dateEntry?.id) {
+      await db.lumenEntries.update(dateEntry.id, data)
     } else {
       await db.lumenEntries.add(data)
     }
@@ -465,7 +494,35 @@ function LogTab({
 
   return (
     <div className="p-4 space-y-4 pb-8">
-      <div className="text-[13px] font-semibold text-gray-500">{fmt(todayStr)}</div>
+
+      {/* Date picker */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">📅</span>
+          <div className="flex-1">
+            <div className="text-[13px] font-semibold text-gray-700 mb-1">วันที่บันทึก</div>
+            <input
+              type="date"
+              value={selectedDate}
+              max={today()}
+              onChange={e => { if (e.target.value) setSelectedDate(e.target.value) }}
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-[14px] focus:outline-none focus:ring-2 focus:ring-orange-300"
+            />
+          </div>
+          {dateEntry && (
+            <span className="text-[11px] bg-orange-100 text-orange-600 px-2 py-1 rounded-full font-semibold whitespace-nowrap">✏️ แก้ไข</span>
+          )}
+        </div>
+        {selectedDate !== today() && (
+          <button
+            type="button"
+            onClick={() => setSelectedDate(today())}
+            className="mt-2 text-[12px] text-orange-500 font-semibold underline"
+          >
+            กลับไปวันนี้
+          </button>
+        )}
+      </div>
 
       {/* Weight (synced) */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
@@ -473,12 +530,12 @@ function LogTab({
           <div className="flex items-center gap-2">
             <span className="text-lg">⚖️</span>
             <div>
-              <div className="text-[13px] font-semibold text-gray-700">น้ำหนักวันนี้</div>
+              <div className="text-[13px] font-semibold text-gray-700">น้ำหนัก{selectedDate === today() ? 'วันนี้' : fmt(selectedDate)}</div>
               <div className="text-[11px] text-gray-400">sync จาก Health Tab อัตโนมัติ</div>
             </div>
           </div>
-          {todayWeight ? (
-            <div className="text-lg font-bold text-gray-800">{todayWeight} <span className="text-sm text-gray-400">กก.</span></div>
+          {dateWeight ? (
+            <div className="text-lg font-bold text-gray-800">{dateWeight} <span className="text-sm text-gray-400">กก.</span></div>
           ) : (
             <div className="text-[12px] text-amber-500 font-semibold">ยังไม่มีข้อมูล<br/>กรอกใน Health Tab</div>
           )}

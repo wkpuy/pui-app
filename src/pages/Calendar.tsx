@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
-import { fetchCalendarEvents, parseDividendEvents } from '../api/google'
+import { fetchCalendarEvents, parseDividendEvents, silentRefreshGoogleToken } from '../api/google'
 import type { ParsedDividendEvent } from '../api/google'
 import { formatCurrency } from '../utils/calculations'
 
@@ -53,25 +53,59 @@ export default function Calendar() {
     if (tokens?.accessToken) loadEvents()
   }, [tokens?.accessToken, year, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadEvents() {
-    if (!tokens?.accessToken) return
+  async function loadEvents(accessToken?: string) {
+    const token = accessToken ?? tokens?.accessToken
+    if (!token) return
     setLoading(true)
     setError(null)
     setTokenExpired(false)
     try {
       const startOfMonth = new Date(year, month, 1)
       const endOfMonth = new Date(year, month + 1, 0)
-      const raw = await fetchCalendarEvents(tokens.accessToken, startOfMonth.toISOString(), endOfMonth.toISOString())
+      const raw = await fetchCalendarEvents(token, startOfMonth.toISOString(), endOfMonth.toISOString())
       setEvents(raw)
       setDividendEvents(parseDividendEvents(raw))
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') {
-        setTokenExpired(true)
+        // Try silent refresh automatically before showing error
+        const refreshed = await trySilentRefresh()
+        if (!refreshed) setTokenExpired(true)
       } else {
         setError(e.message ?? 'ไม่สามารถโหลดปฏิทินได้')
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function trySilentRefresh(): Promise<boolean> {
+    try {
+      const [settings, tokenRow] = await Promise.all([
+        db.settings.toArray().then(r => r[0]),
+        db.googleTokens.toArray().then(r => r[0]),
+      ])
+      if (!settings?.googleClientId || !tokenRow?.id) return false
+
+      const newToken = await silentRefreshGoogleToken(
+        settings.googleClientId,
+        tokenRow.scope ?? 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly'
+      )
+      if (!newToken) return false
+
+      await db.googleTokens.update(tokenRow.id, {
+        accessToken: newToken,
+        expiresAt: Date.now() + 3600 * 1000,
+      })
+
+      // Retry loading with the new token
+      const startOfMonth = new Date(year, month, 1)
+      const endOfMonth = new Date(year, month + 1, 0)
+      const raw = await fetchCalendarEvents(newToken, startOfMonth.toISOString(), endOfMonth.toISOString())
+      setEvents(raw)
+      setDividendEvents(parseDividendEvents(raw))
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -226,13 +260,27 @@ export default function Calendar() {
             {tokenExpired && (
               <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
                 <div className="text-[14px] font-bold text-amber-800 mb-1">🔑 Session หมดอายุ</div>
-                <div className="text-[13px] text-amber-700 mb-3">Token Google หมดอายุแล้ว (มีอายุแค่ 1 ชั่วโมง) กรุณาเชื่อมต่อใหม่ใน Settings</div>
-                <button
-                  onClick={() => navigate('/settings')}
-                  className="inline-block bg-amber-600 text-white text-[13px] font-bold px-4 py-2 rounded-xl active:scale-95"
-                >
-                  ไปที่ Settings →
-                </button>
+                <div className="text-[13px] text-amber-700 mb-3">ลอง refresh อัตโนมัติแล้วแต่ไม่สำเร็จ<br/>กรุณา Sign In ใหม่ใน Settings</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      setTokenExpired(false)
+                      setLoading(true)
+                      const ok = await trySilentRefresh()
+                      setLoading(false)
+                      if (!ok) setTokenExpired(true)
+                    }}
+                    className="flex-1 bg-white border border-amber-400 text-amber-700 text-[13px] font-bold px-3 py-2 rounded-xl active:scale-95"
+                  >
+                    🔄 ลองใหม่
+                  </button>
+                  <button
+                    onClick={() => navigate('/settings')}
+                    className="flex-1 bg-amber-600 text-white text-[13px] font-bold px-3 py-2 rounded-xl active:scale-95"
+                  >
+                    ไปที่ Settings →
+                  </button>
+                </div>
               </div>
             )}
 
