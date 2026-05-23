@@ -196,22 +196,13 @@ export default function Investment() {
                 </span>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={copyPortfolio}
-                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 flex items-center gap-1"
-                title="คัดลอกข้อมูลพอร์ต"
-              >
-                📋 Copy
-              </button>
-              <button
-                onClick={() => syncPrices(false)}
-                disabled={syncing}
-                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1"
-              >
-                {syncing ? '⏳' : '🔄'} {syncing ? 'อัพเดท...' : 'Sync'}
-              </button>
-            </div>
+            <button
+              onClick={() => syncPrices(false)}
+              disabled={syncing}
+              className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1 flex-shrink-0"
+            >
+              {syncing ? '⏳' : '🔄'} {syncing ? 'กำลังอัพเดท...' : 'Sync ราคา'}
+            </button>
           </div>
           {lastSync && <div className="text-[11px] opacity-60 mt-1">อัพเดทล่าสุด {lastSync}</div>}
         </div>
@@ -234,18 +225,26 @@ export default function Investment() {
           <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
         </div>
 
-        {/* Sort controls */}
-        {filtered.length > 1 && (
-          <div className="flex items-center gap-1.5 px-4 py-2 bg-gray-50 border-b border-gray-100 overflow-x-auto">
-            <span className="text-[11px] text-gray-400 font-semibold flex-shrink-0">เรียง:</span>
-            {([['default', '📋 ปกติ'], ['gain', '▲ กำไร%'], ['loss', '▼ ขาดทุน%'], ['value', '💰 มูลค่า']] as const).map(([k, l]) => (
-              <button key={k} onClick={() => setSortKey(k)}
-                className={`flex-shrink-0 text-[12px] font-semibold px-2.5 py-1 rounded-lg transition-colors ${sortKey === k ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 shadow-sm'}`}>
-                {l}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Sort controls + Copy button */}
+        <div className="flex items-center gap-1.5 px-4 py-2 bg-gray-50 border-b border-gray-100">
+          {filtered.length > 1 && (
+            <>
+              <span className="text-[11px] text-gray-400 font-semibold flex-shrink-0">เรียง:</span>
+              {([['default', 'ปกติ'], ['gain', '▲ กำไร%'], ['loss', '▼ ขาดทุน%'], ['value', '💰 มูลค่า']] as const).map(([k, l]) => (
+                <button key={k} onClick={() => setSortKey(k)}
+                  className={`flex-shrink-0 text-[12px] font-semibold px-2.5 py-1 rounded-lg transition-colors ${sortKey === k ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 shadow-sm'}`}>
+                  {l}
+                </button>
+              ))}
+            </>
+          )}
+          <button
+            onClick={copyPortfolio}
+            className="ml-auto flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-white text-indigo-600 shadow-sm active:scale-95 border border-indigo-100"
+          >
+            📋 คัดลอกพอร์ต
+          </button>
+        </div>
 
         {/* List */}
         {filtered.length === 0 ? (
