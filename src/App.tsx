@@ -61,7 +61,14 @@ function MainLayout() {
   useAutoSync()
   useTokenAutoRefresh()
   const [healthToast, setHealthToast] = useState<string | null>(null)
-  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
+      // Force check for SW updates every 60s (important for iOS PWA home screen)
+      if (registration) {
+        setInterval(() => registration.update(), 60_000)
+      }
+    },
+  })
 
   useEffect(() => {
     handleWhoopCallback().then(msg => {
