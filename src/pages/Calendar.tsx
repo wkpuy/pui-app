@@ -205,7 +205,7 @@ export default function Calendar() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={loadEvents}
+                  onClick={() => loadEvents()}
                   disabled={loading}
                   className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center active:scale-95 text-base disabled:opacity-50"
                   title="รีเฟรช"
