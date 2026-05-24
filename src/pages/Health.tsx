@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
-import type { HealthRecord, HealthDaily, Medication } from '../db'
+import type { HealthRecord, HealthDaily, Medication, LumenEntry } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, StatusTag } from '../components/Card'
 import Button, { IconButton, CloseButton } from '../components/Button'
@@ -100,6 +100,25 @@ const STATUS_COLOR = {
 
 type MainTab = 'summary' | 'myplan' | 'longevity' | 'records' | 'daily' | 'meds'
 
+// ── Health export helpers ──────────────────────────────────────────────────
+const HEALTH_RECORD_LABELS: Record<string, string> = {
+  systolic: 'ความดัน_บน_mmHg', diastolic: 'ความดัน_ล่าง_mmHg', heartRate: 'อัตราหัวใจ_bpm',
+  glucose: 'น้ำตาล_mgdL', hba1c: 'HbA1c_pct', fastingInsulin: 'fasting_insulin',
+  homaIr: 'HOMA-IR', ldl: 'LDL_mgdL', hdl: 'HDL_mgdL', triglycerides: 'ไตรกลีเซอไรด์_mgdL',
+  totalCholesterol: 'คอเลสเตอรอล_mgdL', apoB: 'ApoB_mgdL', lpA: 'Lp(a)_mgdL',
+  creatinine: 'ครีเอตินิน', uricAcid: 'กรดยูริก', egfr: 'eGFR',
+  alt: 'ALT', ast: 'AST', ggt: 'GGT', hsCrp: 'hs-CRP', homocysteine: 'Homocysteine',
+  omega3Index: 'Omega3_index_pct', cacScore: 'CAC_score', tsh: 'TSH', dheaS: 'DHEA-S',
+  igf1: 'IGF-1', cortisol: 'Cortisol_AM', vitaminD: 'Vitamin_D', vitaminB12: 'Vitamin_B12',
+  vitaminB6: 'Vitamin_B6', vitaminB1: 'Vitamin_B1', magnesium: 'Magnesium', ferritin: 'Ferritin',
+  weightKg: 'น้ำหนัก_กก', bodyFatPct: 'ไขมัน_pct', muscleMassKg: 'กล้ามเนื้อ_กก',
+  waistCm: 'เส้นรอบพุง_cm', boneDensityTScore: 'bone_density_T',
+  hemoglobin: 'Hemoglobin', wbc: 'WBC', platelets: 'Platelets',
+  gripStrength: 'grip_strength_kg', mocaScore: 'MoCA',
+  estradiol: 'Estradiol', progesterone: 'Progesterone', fsh: 'FSH', lh: 'LH', testosterone: 'Testosterone',
+  notes: 'หมายเหตุ',
+}
+
 const LONGEVITY_KEYS = Object.entries(BIOMARKERS)
   .filter(([, def]) => def.longevity)
   .map(([key]) => key)
@@ -114,6 +133,14 @@ export default function Health() {
   const [editMed, setEditMed] = useState<Medication | null>(null)
   const [whoopSyncing, setWhoopSyncing] = useState(false)
   const [whoopMsg, setWhoopMsg] = useState<string | null>(null)
+
+  // Export state
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportFrom, setExportFrom] = useState(thirtyDaysAgo)
+  const [exportTo, setExportTo] = useState(todayStr)
+  const [exportToast, setExportToast] = useState<string | null>(null)
 
   async function doWhoopSync() {
     if (!loadWhoopTokens()) return
@@ -143,6 +170,7 @@ export default function Health() {
   )
   const allRecords = useLiveQuery(() => db.healthRecords.orderBy('date').reverse().toArray())
   const allDaily = useLiveQuery(() => db.healthDaily.orderBy('date').reverse().toArray())
+  const allLumen = useLiveQuery(() => db.lumenEntries.orderBy('date').toArray())
 
   const age = profile ? getAgeDetail(profile.dob).years : 35
   const checkups = getCheckups(age)
@@ -158,6 +186,126 @@ export default function Health() {
     bmi: profile && latestDaily.weightKg ? latestDaily.weightKg / Math.pow(profile.heightCm / 100, 2) : undefined,
   }) : null
 
+  // ── Export helpers ─────────────────────────────────────────────────────
+  function generateHealthJSON(from: string, to: string): string {
+    const dailyMap = new Map<string, HealthDaily>()
+    ;(allDaily ?? []).forEach(d => dailyMap.set(d.date, d))
+    const lumenMap = new Map<string, LumenEntry>()
+    ;(allLumen ?? []).forEach(l => lumenMap.set(l.date, l))
+    // healthRecords: take the latest record per date
+    const recordMap = new Map<string, HealthRecord>()
+    ;(allRecords ?? []).slice().reverse().forEach(r => recordMap.set(r.date, r))
+
+    // collect all dates in range
+    const dates: string[] = []
+    const cur = new Date(from)
+    const end = new Date(to)
+    while (cur <= end) {
+      dates.push(cur.toISOString().slice(0, 10))
+      cur.setDate(cur.getDate() + 1)
+    }
+
+    const result: Record<string, Record<string, unknown>> = {}
+    for (const d of dates) {
+      const daily = dailyMap.get(d)
+      const lumen = lumenMap.get(d)
+      const rec = recordMap.get(d)
+      const day: Record<string, unknown> = {}
+
+      // น้ำหนัก
+      if (daily?.weightKg != null) day['น้ำหนัก_กก'] = daily.weightKg
+
+      // Lumen
+      if (lumen) {
+        const lumenOut: Record<string, unknown> = {}
+        if (lumen.morningScore != null) lumenOut['morning'] = {
+          score: lumen.morningScore,
+          ...(lumen.morningTime ? { time: lumen.morningTime } : {}),
+          ...(lumen.morningRemark ? { remark: lumen.morningRemark } : {}),
+        }
+        if (lumen.didWorkout) lumenOut['workout'] = {
+          did: true,
+          ...(lumen.workoutType ? { type: lumen.workoutType } : {}),
+          ...(lumen.workoutMinutes != null ? { minutes: lumen.workoutMinutes } : {}),
+          ...(lumen.preWorkoutScore != null ? { pre_score: lumen.preWorkoutScore } : {}),
+          ...(lumen.preWorkoutRemark ? { pre_remark: lumen.preWorkoutRemark } : {}),
+          ...(lumen.postWorkoutScore != null ? { post_score: lumen.postWorkoutScore } : {}),
+          ...(lumen.postWorkoutRemark ? { post_remark: lumen.postWorkoutRemark } : {}),
+        }
+        if (lumen.afternoonScore != null) lumenOut['afternoon'] = {
+          score: lumen.afternoonScore,
+          ...(lumen.afternoonTime ? { time: lumen.afternoonTime } : {}),
+          ...(lumen.afternoonRemark ? { remark: lumen.afternoonRemark } : {}),
+        }
+        if (lumen.nightScore != null) lumenOut['night'] = {
+          score: lumen.nightScore,
+          ...(lumen.nightTime ? { time: lumen.nightTime } : {}),
+          ...(lumen.nightRemark ? { remark: lumen.nightRemark } : {}),
+        }
+        if (Object.keys(lumenOut).length) day['lumen'] = lumenOut
+      }
+
+      // WHOOP / daily metrics
+      if (daily) {
+        const whoop: Record<string, unknown> = {}
+        if (daily.recoveryScore != null) whoop['recovery'] = daily.recoveryScore
+        if (daily.hrv != null) whoop['hrv'] = daily.hrv
+        if (daily.restingHeartRate != null) whoop['rhr'] = daily.restingHeartRate
+        if (daily.sleepTotal != null) whoop['นอนรวม_ชม'] = Math.round(daily.sleepTotal / 60 * 10) / 10
+        if (daily.sleepDeep != null) whoop['deep_sleep_ชม'] = Math.round(daily.sleepDeep / 60 * 10) / 10
+        if (daily.sleepRem != null) whoop['rem_sleep_ชม'] = Math.round(daily.sleepRem / 60 * 10) / 10
+        if (daily.caloriesBurned != null) whoop['calories'] = daily.caloriesBurned
+        if (daily.strain != null) whoop['strain'] = daily.strain
+        if (Object.keys(whoop).length) day['whoop'] = whoop
+        if (daily.steps != null) day['ก้าวเดิน'] = daily.steps
+      }
+
+      // ผลตรวจสุขภาพ
+      if (rec) {
+        const checkup: Record<string, unknown> = {}
+        for (const [key, label] of Object.entries(HEALTH_RECORD_LABELS)) {
+          const val = (rec as unknown as Record<string, unknown>)[key]
+          if (val != null && key !== 'id' && key !== 'date') checkup[label] = val
+        }
+        if (Object.keys(checkup).length) day['ผลตรวจสุขภาพ'] = checkup
+      }
+
+      if (Object.keys(day).length) {
+        // convert YYYY-MM-DD → DD/MM/YYYY (Buddhist era +543)
+        const [y, m, dd] = d.split('-')
+        const displayKey = `${dd}/${m}/${parseInt(y) + 543}`
+        result[displayKey] = day
+      }
+    }
+    return JSON.stringify(result, null, 2)
+  }
+
+  function copyHealthExport() {
+    const json = generateHealthJSON(exportFrom, exportTo)
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(json).then(() => {
+        setExportToast('✅ คัดลอกข้อมูลสุขภาพแล้ว')
+        setShowExportModal(false)
+        setTimeout(() => setExportToast(null), 3000)
+      })
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = json
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      setExportToast('✅ คัดลอกข้อมูลสุขภาพแล้ว')
+      setShowExportModal(false)
+      setTimeout(() => setExportToast(null), 3000)
+    }
+  }
+
+  const exportRangeDays = exportFrom && exportTo
+    ? Math.round((new Date(exportTo).getTime() - new Date(exportFrom).getTime()) / 86400000)
+    : 0
+  const exportRangeError = exportRangeDays > 365 ? 'ช่วงวันที่ต้องไม่เกิน 1 ปี' : exportTo < exportFrom ? 'วันที่สิ้นสุดต้องมากกว่าวันเริ่มต้น' : null
+
   function openAddRecord() { setEditRecord(null); setShowRecordForm(true) }
   function openAddDaily() { setEditDaily(null); setShowDailyForm(true) }
 
@@ -172,8 +320,15 @@ export default function Health() {
         }}
       />
 
+      {/* Export toast */}
+      {exportToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white text-[13px] font-semibold px-4 py-2.5 rounded-2xl shadow-xl">
+          {exportToast}
+        </div>
+      )}
+
       <div className="relative bg-white border-b border-gray-100">
-        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
+        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden pr-16">
           {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม'], ['meds', '💊 ยา/วิตามิน']] as [MainTab, string][]).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-400'}`}>
@@ -181,7 +336,15 @@ export default function Health() {
             </button>
           ))}
         </div>
-        <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
+        {/* Export button pinned right of tabs */}
+        <div className="absolute right-0 top-0 h-full flex items-center pr-2 bg-white border-l border-gray-100">
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 active:scale-95 border border-emerald-100"
+          >
+            📤 Export
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -213,6 +376,65 @@ export default function Health() {
       )}
       {showMedForm && (
         <MedicationForm editItem={editMed} onClose={() => { setShowMedForm(false); setEditMed(null) }} />
+      )}
+
+      {/* Export modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowExportModal(false)}>
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[16px] font-bold text-gray-800">📤 Export ข้อมูลสุขภาพ</h3>
+              <button onClick={() => setShowExportModal(false)} className="text-gray-400 text-xl leading-none">✕</button>
+            </div>
+
+            <p className="text-[12px] text-gray-500 mb-4">ข้อมูลที่ได้: น้ำหนัก, Lumen, WHOOP, ก้าวเดิน, ผลตรวจสุขภาพ (JSON)</p>
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-600 mb-1">ตั้งแต่วันที่</label>
+                <input
+                  type="date"
+                  value={exportFrom}
+                  max={todayStr}
+                  onChange={e => setExportFrom(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[14px] text-gray-800"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-600 mb-1">ถึงวันที่</label>
+                <input
+                  type="date"
+                  value={exportTo}
+                  max={todayStr}
+                  onChange={e => setExportTo(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[14px] text-gray-800"
+                />
+              </div>
+            </div>
+
+            {exportRangeError ? (
+              <p className="text-[12px] text-red-500 mb-3">⚠️ {exportRangeError}</p>
+            ) : (
+              <p className="text-[12px] text-gray-400 mb-3">ช่วง {exportRangeDays + 1} วัน</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-[13px] font-semibold text-gray-500 active:scale-95"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={copyHealthExport}
+                disabled={!!exportRangeError}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-white text-[13px] font-bold active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                📋 คัดลอก JSON
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
