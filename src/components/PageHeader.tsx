@@ -4,12 +4,19 @@ interface Props {
   title: string
   subtitle?: string
   rightAction?: { label: string; onClick: () => void }
+  rightActions?: { label: string; onClick: () => void; secondary?: boolean }[]
   back?: boolean
   gradient?: string   // e.g. "from-emerald-500 to-teal-600"
 }
 
-export default function PageHeader({ title, subtitle, rightAction, back, gradient }: Props) {
+export default function PageHeader({ title, subtitle, rightAction, rightActions, back, gradient }: Props) {
   const navigate = useNavigate()
+
+  // merge rightAction + rightActions into one list for rendering
+  const actions = [
+    ...(rightActions ?? []),
+    ...(rightAction ? [{ label: rightAction.label, onClick: rightAction.onClick }] : []),
+  ]
 
   if (gradient) {
     return (
@@ -24,13 +31,18 @@ export default function PageHeader({ title, subtitle, rightAction, back, gradien
               {subtitle && <p className="text-[12px] text-white/70 mt-0.5">{subtitle}</p>}
             </div>
           </div>
-          {rightAction && (
-            <button
-              onClick={rightAction.onClick}
-              className="bg-white/20 text-white font-semibold text-[13px] px-4 py-2 rounded-xl active:scale-95 backdrop-blur-sm mt-0.5"
-            >
-              {rightAction.label}
-            </button>
+          {actions.length > 0 && (
+            <div className="flex items-center gap-2 mt-0.5">
+              {actions.map((a, i) => (
+                <button
+                  key={i}
+                  onClick={a.onClick}
+                  className={`font-semibold text-[13px] px-4 py-2 rounded-xl active:scale-95 backdrop-blur-sm ${a.secondary ? 'bg-white/10 text-white/80' : 'bg-white/20 text-white'}`}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>

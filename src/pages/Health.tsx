@@ -314,10 +314,10 @@ export default function Health() {
       <PageHeader
         title="สุขภาพ"
         gradient="from-rose-500 to-pink-600"
-        rightAction={{
-          label: '＋ เพิ่ม',
-          onClick: () => tab === 'daily' ? openAddDaily() : tab === 'meds' ? (() => { setEditMed(null); setShowMedForm(true) })() : openAddRecord(),
-        }}
+        rightActions={[
+          { label: '📤', onClick: () => setShowExportModal(true), secondary: true },
+          { label: '＋ เพิ่ม', onClick: () => tab === 'daily' ? openAddDaily() : tab === 'meds' ? (() => { setEditMed(null); setShowMedForm(true) })() : openAddRecord() },
+        ]}
       />
 
       {/* Export toast */}
@@ -328,7 +328,7 @@ export default function Health() {
       )}
 
       <div className="relative bg-white border-b border-gray-100">
-        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden pr-16">
+        <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden">
           {([['summary', 'ภาพรวม'], ['myplan', '🎯 แผนของฉัน'], ['longevity', 'Longevity'], ['records', 'ผลตรวจ'], ['daily', 'กิจกรรม'], ['meds', '💊 ยา/วิตามิน']] as [MainTab, string][]).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-rose-500 text-rose-500' : 'border-transparent text-gray-400'}`}>
@@ -336,15 +336,7 @@ export default function Health() {
             </button>
           ))}
         </div>
-        {/* Export button pinned right of tabs */}
-        <div className="absolute right-0 top-0 h-full flex items-center pr-2 bg-white border-l border-gray-100">
-          <button
-            onClick={() => setShowExportModal(true)}
-            className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 active:scale-95 border border-emerald-100"
-          >
-            📤 Export
-          </button>
-        </div>
+        <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
       </div>
 
       <div className="flex-1 overflow-y-auto">
