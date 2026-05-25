@@ -188,6 +188,21 @@ export async function pruneSyncLog(keep = 50) {
   if (oldest.length > 0) await db.syncLog.bulkDelete(oldest as number[])
 }
 
+/** Real byte-level storage estimate via Storage API (Safari/iOS supported) */
+export async function getStorageBytesEstimate() {
+  if (!navigator.storage?.estimate) return null
+  const { usage, quota } = await navigator.storage.estimate()
+  const used = usage ?? 0
+  const total = quota ?? 0
+  return {
+    usedBytes: used,
+    quotaBytes: total,
+    usedMB: used / 1024 / 1024,
+    quotaMB: total / 1024 / 1024,
+    percent: total > 0 ? (used / total) * 100 : 0,
+  }
+}
+
 /** Estimate rough size of each table (row count — not bytes, but useful for housekeeping UI) */
 export async function getStorageStats() {
   const [profile, investments, dividends, healthRecords, healthDaily,

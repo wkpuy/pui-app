@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { db, pruneSyncLog, getStorageStats } from '../db'
+import { db, pruneSyncLog, getStorageStats, getStorageBytesEstimate } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, SectionLabel } from '../components/Card'
 import { signInWithGoogle, fetchCalendarEvents, fetchGmailBankMessages, parseBankEmail, parseDividendEvents, findDriveBackupFile, uploadBackupToDrive, downloadDriveBackup, calcSinceDate } from '../api/google'
 import { getWhoopAuthUrl, loadWhoopTokens, clearWhoopTokens, debugWhoopRaw, getValidTokens, saveWhoopTokens } from '../api/whoop'
 import { syncWhoopAndSave } from '../api/whoopSync'
+
+const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
 const CLEAR_SECTIONS = [
   { key: 'home',       label: '🏠 หน้าหลัก',  tables: ['profile', 'netWorthSnapshots'] },
@@ -35,13 +37,24 @@ export default function Settings() {
   const [whoopResult, setWhoopResult] = useState<{ text: string; ok: boolean } | null>(null)
   const [whoopDebug, setWhoopDebug] = useState<string>('')
   const [storageStats, setStorageStats] = useState<Awaited<ReturnType<typeof getStorageStats>> | null>(null)
+  const [storageBytes, setStorageBytes] = useState<Awaited<ReturnType<typeof getStorageBytesEstimate>> | null>(null)
+  const [lastBackupBytes, setLastBackupBytes] = useState<number | null>(null)
   const [clearSelected, setClearSelected] = useState<Set<string>>(new Set())
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [clearing, setClearing] = useState(false)
 
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth() + 1
+  const [clearFinanceYear, setClearFinanceYear] = useState(currentYear)
+  const [clearFinanceMonth, setClearFinanceMonth] = useState(currentMonth)
+  const [clearFinanceCount, setClearFinanceCount] = useState<number | null>(null)
+  const [clearingFinance, setClearingFinance] = useState(false)
+  const [showClearFinanceConfirm, setShowClearFinanceConfirm] = useState(false)
+
   async function loadStats() {
-    const s = await getStorageStats()
+    const [s, b] = await Promise.all([getStorageStats(), getStorageBytesEstimate()])
     setStorageStats(s)
+    setStorageBytes(b)
   }
 
   // Reactive counts per section (keyed by section.key)
@@ -101,6 +114,8 @@ export default function Settings() {
     if (settings?.googleClientSecret) setGoogleClientSecret(settings.googleClientSecret)
     setWhoopConnected(!!loadWhoopTokens())
   }, [profile, settings])
+
+  useEffect(() => { loadStats() }, [])
 
   async function saveProfile() {
     const data = { nickname: profileForm.nickname, fullName: profileForm.fullName, dob: profileForm.dob, gender: profileForm.gender, heightCm: parseFloat(profileForm.heightCm) || 170 }
@@ -214,6 +229,29 @@ export default function Settings() {
     }
   }, [])
 
+  async function countFinanceByMonth(year: number, month: number) {
+    const prefix = `${year}-${month.toString().padStart(2, '0')}`
+    const count = await db.financeRecords.filter(r => r.date.startsWith(prefix)).count()
+    setClearFinanceCount(count)
+  }
+
+  async function clearFinanceByMonth() {
+    const prefix = `${clearFinanceYear}-${clearFinanceMonth.toString().padStart(2, '0')}`
+    setClearingFinance(true)
+    try {
+      const ids = await db.financeRecords.filter(r => r.date.startsWith(prefix)).primaryKeys()
+      await db.financeRecords.bulkDelete(ids as number[])
+      const thaiMonth = THAI_MONTHS[clearFinanceMonth - 1]
+      setSyncStatus(`✓ ลบรายรับ-รายจ่าย ${thaiMonth} ${clearFinanceYear} แล้ว (${ids.length} รายการ)`)
+      setTimeout(() => setSyncStatus(''), 3000)
+      setClearFinanceCount(0)
+      setShowClearFinanceConfirm(false)
+      loadStats()
+    } finally {
+      setClearingFinance(false)
+    }
+  }
+
   async function exportData() {
     const data = {
       profile: await db.profile.toArray(),
@@ -236,7 +274,9 @@ export default function Settings() {
       exportedAt: new Date().toISOString(),
     }
     // Download local copy
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const json = JSON.stringify(data, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    setLastBackupBytes(blob.size)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -526,9 +566,58 @@ export default function Settings() {
         <SectionLabel>พื้นที่จัดเก็บข้อมูล</SectionLabel>
         <div className="mx-4 mb-4">
           <Card>
+            {/* Byte-level usage bar — always shown after mount */}
+            {storageBytes && (() => {
+              const pct = Math.min(storageBytes.percent, 100)
+              const barColor = pct >= 85 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-400' : 'bg-indigo-500'
+              const textColor = pct >= 85 ? 'text-red-600' : pct >= 60 ? 'text-amber-600' : 'text-indigo-600'
+              const fmtMB = (mb: number) => mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[13px] font-bold text-gray-700">พื้นที่ที่ใช้</span>
+                    <span className={`text-[13px] font-bold ${textColor}`}>{pct.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[11px] text-gray-500">{fmtMB(storageBytes.usedMB)} ที่ใช้</span>
+                    <span className="text-[11px] text-gray-400">ทั้งหมด {fmtMB(storageBytes.quotaMB)}</span>
+                  </div>
+                  {pct >= 85 && (
+                    <div className="mt-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-[12px] text-red-700 font-medium">
+                      ⚠️ พื้นที่เหลือน้อย — แนะนำ Export backup แล้วล้างข้อมูลเก่า
+                    </div>
+                  )}
+                  {pct >= 60 && pct < 85 && (
+                    <div className="mt-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[12px] text-amber-700">
+                      💡 ใช้ไปมากกว่าครึ่ง — ควร backup ไว้
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* Last backup file size */}
+            {lastBackupBytes !== null && (
+              <div className="mb-3 bg-green-50 border border-green-200 rounded-xl px-3 py-2.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[12px] font-bold text-green-800">📦 Backup ล่าสุด</div>
+                  <div className="text-[11px] text-green-600 mt-0.5">
+                    {lastBackupBytes >= 1024 * 1024
+                      ? `${(lastBackupBytes / 1024 / 1024).toFixed(2)} MB`
+                      : `${(lastBackupBytes / 1024).toFixed(1)} KB`}
+                    {lastBackupBytes > 5 * 1024 * 1024 && ' — ไฟล์ใหญ่ อาจช้าตอน upload Drive'}
+                  </div>
+                </div>
+                <span className="text-green-500 text-lg">✓</span>
+              </div>
+            )}
+
             {!storageStats ? (
               <button onClick={loadStats} className="w-full text-[13px] font-semibold text-indigo-600 py-2 active:scale-95">
-                📊 ดูสถิติข้อมูลใน Storage
+                📊 ดูสถิติรายการข้อมูล
               </button>
             ) : (
               <div className="space-y-2">
@@ -609,6 +698,78 @@ export default function Settings() {
           </Card>
         </div>
 
+        {/* Clear finance by month */}
+        <SectionLabel>ล้างรายรับ-รายจ่าย รายเดือน</SectionLabel>
+        <div className="mx-4 mb-4">
+          <Card>
+            <div className="text-[12px] text-gray-500 mb-3 leading-relaxed">
+              ลบเฉพาะรายการ <span className="font-semibold text-gray-700">รายรับ-รายจ่าย</span> ของเดือนที่เลือก<br/>
+              <span className="text-green-700">✓ ไม่กระทบ:</span> เงินเดือน · สินเชื่อ · ภาษี · งบเดือน
+            </div>
+
+            {/* Year selector */}
+            <div className="mb-3">
+              <div className="text-[12px] font-semibold text-gray-500 mb-1.5">ปี</div>
+              <div className="flex gap-2 flex-wrap">
+                {Array.from({ length: new Date().getFullYear() - 2022 + 1 }, (_, i) => 2023 + i).map(y => (
+                  <button key={y}
+                    onClick={() => { setClearFinanceYear(y); setClearFinanceCount(null) }}
+                    className={`px-4 py-2 rounded-xl text-[13px] font-semibold border-2 transition-colors ${clearFinanceYear === y ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-200 text-gray-600'}`}>
+                    {y}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Month selector — 4 columns grid */}
+            <div className="mb-4">
+              <div className="text-[12px] font-semibold text-gray-500 mb-1.5">เดือน</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {THAI_MONTHS.map((name, i) => {
+                  const m = i + 1
+                  const isFuture = clearFinanceYear === currentYear && m > currentMonth
+                  return (
+                    <button key={m}
+                      disabled={isFuture}
+                      onClick={() => { setClearFinanceMonth(m); setClearFinanceCount(null) }}
+                      className={`py-2 rounded-xl text-[12px] font-semibold border-2 transition-colors ${clearFinanceMonth === m ? 'bg-indigo-600 text-white border-indigo-600' : isFuture ? 'border-gray-100 text-gray-300' : 'border-gray-200 text-gray-600'}`}>
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Count + action */}
+            {clearFinanceCount === null ? (
+              <button
+                onClick={() => countFinanceByMonth(clearFinanceYear, clearFinanceMonth)}
+                className="w-full border-2 border-indigo-300 text-indigo-600 font-semibold py-2.5 rounded-xl text-[13px] active:scale-95">
+                🔍 ตรวจสอบจำนวนรายการ {THAI_MONTHS[clearFinanceMonth - 1]} {clearFinanceYear}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className={`rounded-xl px-4 py-3 text-[13px] font-medium text-center ${clearFinanceCount === 0 ? 'bg-gray-50 text-gray-500' : 'bg-amber-50 text-amber-800'}`}>
+                  {clearFinanceCount === 0
+                    ? `ไม่มีรายการในเดือน ${THAI_MONTHS[clearFinanceMonth - 1]} ${clearFinanceYear}`
+                    : `พบ ${clearFinanceCount} รายการ ใน ${THAI_MONTHS[clearFinanceMonth - 1]} ${clearFinanceYear}`}
+                </div>
+                {clearFinanceCount > 0 && (
+                  <button
+                    onClick={() => setShowClearFinanceConfirm(true)}
+                    className="w-full bg-red-500 text-white font-bold py-3 rounded-xl text-[13px] active:scale-95">
+                    🗑️ ลบ {clearFinanceCount} รายการ
+                  </button>
+                )}
+                <button onClick={() => setClearFinanceCount(null)}
+                  className="w-full text-[12px] text-gray-400 py-1 active:scale-95">
+                  เปลี่ยนเดือน
+                </button>
+              </div>
+            )}
+          </Card>
+        </div>
+
         <SectionLabel>ล้างข้อมูลในแอป</SectionLabel>
         <div className="mx-4 mb-4">
           <Card>
@@ -680,6 +841,34 @@ export default function Settings() {
         </div>
         <div className="h-4" />
       </div>
+
+      {showClearFinanceConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => !clearingFinance && setShowClearFinanceConfirm(false)}>
+          <div className="bg-white rounded-t-3xl w-full p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-2 text-red-600">⚠️ ยืนยันการลบ</h3>
+            <div className="text-[13px] text-gray-700 mb-1">จะลบรายรับ-รายจ่าย</div>
+            <div className="text-[20px] font-bold text-indigo-700 mb-1">
+              {THAI_MONTHS[clearFinanceMonth - 1]} {clearFinanceYear}
+            </div>
+            <div className="text-[13px] text-gray-600 mb-4">
+              รวม {clearFinanceCount} รายการ — ลบแล้วกู้คืนไม่ได้
+            </div>
+            <div className="bg-green-50 rounded-xl px-3 py-2 text-[12px] text-green-700 mb-4">
+              ✓ เงินเดือน · สินเชื่อ · ภาษี · งบเดือน จะไม่ถูกลบ
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowClearFinanceConfirm(false)} disabled={clearingFinance}
+                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:scale-95 disabled:opacity-50">
+                ยกเลิก
+              </button>
+              <button onClick={clearFinanceByMonth} disabled={clearingFinance}
+                className="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95 disabled:opacity-50">
+                {clearingFinance ? 'กำลังลบ...' : 'ลบเลย'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showClearConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => !clearing && setShowClearConfirm(false)}>
