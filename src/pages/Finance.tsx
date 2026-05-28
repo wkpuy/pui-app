@@ -271,6 +271,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
   const tokens = useLiveQuery(() => db.googleTokens.toArray().then(r => r[0]))
   const [showDataSources, setShowDataSources] = useState(false)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const [selectedCard, setSelectedCard] = useState<string | null>(null)
   const [bills, setBills] = useState<BillFile[]>([])
   const [billsLoading, setBillsLoading] = useState(false)
   const [billsError, setBillsError] = useState<string | null>(null)
@@ -627,22 +628,120 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
             <SectionLabel>ยอดใช้จ่ายบัตรเครดิต</SectionLabel>
             <div className="mx-4 bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
               {cards.map(([card, amt], idx) => (
-                <div key={card} className={`px-4 py-3 ${idx < cards.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                <button key={card} onClick={() => setSelectedCard(card)}
+                  className={`w-full px-4 py-3 text-left active:bg-purple-50 ${idx < cards.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[14px] font-medium text-gray-700">
                       💳 {BANK_LABELS[card]?.label ?? card}
                       <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${BANK_LABELS[card]?.color ?? 'bg-gray-100 text-gray-600'}`}>{card}</span>
                     </span>
-                    <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[14px] font-bold text-gray-900">{formatCurrency(amt)}</span>
+                      <span className="text-gray-300 text-[12px]">›</span>
+                    </div>
                   </div>
                   <ProgressBar value={amt} max={cardTotal} color="bg-purple-400" />
-                </div>
+                </button>
               ))}
               <div className="px-4 py-2.5 bg-gray-50 flex justify-between">
                 <span className="text-[12px] font-semibold text-gray-500">รวมทุกบัตร</span>
                 <span className="text-[13px] font-bold text-purple-700">{formatCurrency(cardTotal)}</span>
               </div>
             </div>
+
+            {/* Credit card drill-down modal */}
+            {selectedCard && (() => {
+              const cardRecs = monthRecords
+                .filter(r => r.type === 'expense' && r.source === 'credit_card' && r.cardName === selectedCard)
+                .sort((a, b) => b.amount - a.amount)
+              const cardRec_total = cardRecs.reduce((s, r) => s + r.amount, 0)
+              const installRecs = cardRecs.filter(r => (r.installmentTotal ?? 0) > 1)
+              const normalRecs  = cardRecs.filter(r => !((r.installmentTotal ?? 0) > 1))
+              const installTotal = installRecs.reduce((s, r) => s + r.amount, 0)
+              const normalTotal  = normalRecs.reduce((s, r) => s + r.amount, 0)
+              const cardInfo = BANK_LABELS[selectedCard] ?? { label: selectedCard, color: 'bg-gray-100 text-gray-600' }
+
+              const CardRow = ({ r }: { r: FinanceRecord }) => (
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-gray-800 truncate">{r.description || '(ไม่ระบุ)'}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>{r.date}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${CAT_COLORS[r.category] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {CAT_ICONS[r.category] ?? '📦'} {r.category}
+                      </span>
+                      {(r.installmentTotal ?? 0) > 1 && (
+                        <span className="text-orange-500 text-[10px] bg-orange-50 px-1.5 rounded-full">
+                          งวด {r.installmentCurrent}/{r.installmentTotal}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-[14px] font-bold text-red-500 ml-3 flex-shrink-0">{formatCurrency(r.amount)}</div>
+                </div>
+              )
+
+              return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setSelectedCard(null)}>
+                  <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    {/* Header */}
+                    <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">💳</span>
+                        <div>
+                          <div className="text-[15px] font-bold text-gray-900">{cardInfo.label}</div>
+                          <div className="text-[12px] text-gray-400">{cardRecs.length} รายการ</div>
+                        </div>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${cardInfo.color}`}>{selectedCard}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[15px] font-bold text-gray-900">{formatCurrency(cardRec_total)}</span>
+                        <CloseButton onClick={() => setSelectedCard(null)} />
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto">
+                      {/* Installment section */}
+                      {installRecs.length > 0 && (
+                        <div className="px-4 pt-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-[12px] font-bold text-orange-600">
+                              💳 รายการผ่อน ({installRecs.length})
+                            </div>
+                            <span className="text-[13px] font-bold text-orange-700">{formatCurrency(installTotal)}</span>
+                          </div>
+                          <div className="bg-orange-50 rounded-xl px-3 divide-y divide-orange-100">
+                            {installRecs.map(r => <CardRow key={r.id} r={r} />)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Normal section */}
+                      {normalRecs.length > 0 && (
+                        <div className="px-4 pt-3 pb-4">
+                          {installRecs.length > 0 && (
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-[12px] font-bold text-gray-600">
+                                📋 รายการทั่วไป ({normalRecs.length})
+                              </div>
+                              <span className="text-[13px] font-bold text-gray-700">{formatCurrency(normalTotal)}</span>
+                            </div>
+                          )}
+                          <div className="bg-white rounded-xl px-3 divide-y divide-gray-50 border border-gray-100">
+                            {normalRecs.map(r => <CardRow key={r.id} r={r} />)}
+                          </div>
+                        </div>
+                      )}
+
+                      {cardRecs.length === 0 && (
+                        <div className="py-12 text-center text-gray-400 text-[13px]">ไม่มีรายการ</div>
+                      )}
+                      <div className="h-4" />
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </>
         )
       })()}
@@ -725,9 +824,37 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
         const catRecords = monthRecords.filter(r => r.type === 'expense' && r.category === selectedCat)
         const catTotal = catRecords.reduce((s, r) => s + r.amount, 0)
         const chipColor = CAT_COLORS[selectedCat] ?? 'bg-gray-100 text-gray-500'
+
+        // แยก ผ่อน vs ปกติ
+        const installRecs = catRecords.filter(r => (r.installmentTotal ?? 0) > 1).sort((a, b) => b.amount - a.amount)
+        const normalRecs  = catRecords.filter(r => !((r.installmentTotal ?? 0) > 1)).sort((a, b) => b.amount - a.amount)
+        const installTotal = installRecs.reduce((s, r) => s + r.amount, 0)
+        const normalTotal  = normalRecs.reduce((s, r) => s + r.amount, 0)
+        const hasInstall = installRecs.length > 0
+        const hasNormal  = normalRecs.length > 0
+
+        const RecordRow = ({ r }: { r: FinanceRecord }) => (
+          <div className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-gray-800 truncate">{r.description || r.category}</div>
+              <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <span>{r.date}</span>
+                {r.cardName && <span className="bg-gray-100 px-1 rounded text-[10px]">{r.cardName}</span>}
+                {r.source === 'kasikorn' && <span className="text-green-600 text-[10px]">KBANK</span>}
+                {r.source === 'bangkok_bank' && <span className="text-indigo-600 text-[10px]">BBL</span>}
+                {(r.installmentTotal ?? 0) > 1 && (
+                  <span className="text-orange-500 text-[10px] bg-orange-50 px-1.5 rounded-full">งวด {r.installmentCurrent}/{r.installmentTotal}</span>
+                )}
+              </div>
+            </div>
+            <div className="text-[14px] font-bold text-red-500 ml-3 flex-shrink-0">{formatCurrency(r.amount)}</div>
+          </div>
+        )
+
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setSelectedCat(null)}>
             <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              {/* Header */}
               <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${chipColor}`}>
@@ -740,21 +867,46 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
                   <CloseButton onClick={() => setSelectedCat(null)} />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
-                {catRecords.sort((a, b) => b.amount - a.amount).map(r => (
-                  <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-gray-800 truncate">{r.description || r.category}</div>
-                      <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-                        <span>{r.date}</span>
-                        {r.cardName && <span className="bg-gray-100 px-1 rounded text-[10px]">{r.cardName}</span>}
-                        {r.source === 'kasikorn' && <span className="text-green-600 text-[10px]">KBANK</span>}
-                        {r.source === 'bangkok_bank' && <span className="text-indigo-600 text-[10px]">BBL</span>}
+
+              <div className="flex-1 overflow-y-auto">
+                {/* Section: ผ่อน */}
+                {hasInstall && (
+                  <div className="px-4 pt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[12px] font-bold text-orange-600 flex items-center gap-1">
+                        💳 รายการผ่อน
+                        <span className="font-normal text-orange-400">({installRecs.length})</span>
                       </div>
+                      <span className="text-[13px] font-bold text-orange-700">{formatCurrency(installTotal)}</span>
                     </div>
-                    <div className="text-[14px] font-bold text-red-500 ml-3 flex-shrink-0">{formatCurrency(r.amount)}</div>
+                    <div className="bg-orange-50 rounded-xl px-3 divide-y divide-orange-100">
+                      {installRecs.map(r => <RecordRow key={r.id} r={r} />)}
+                    </div>
                   </div>
-                ))}
+                )}
+
+                {/* Section: ปกติ */}
+                {hasNormal && (
+                  <div className="px-4 pt-3 pb-4">
+                    {hasInstall && (
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[12px] font-bold text-gray-600 flex items-center gap-1">
+                          📋 รายการทั่วไป
+                          <span className="font-normal text-gray-400">({normalRecs.length})</span>
+                        </div>
+                        <span className="text-[13px] font-bold text-gray-700">{formatCurrency(normalTotal)}</span>
+                      </div>
+                    )}
+                    <div className={`bg-white rounded-xl px-3 divide-y divide-gray-50 ${hasInstall ? 'border border-gray-100' : ''}`}>
+                      {normalRecs.map(r => <RecordRow key={r.id} r={r} />)}
+                    </div>
+                  </div>
+                )}
+
+                {!hasInstall && !hasNormal && (
+                  <div className="py-12 text-center text-gray-400 text-[13px]">ไม่มีรายการ</div>
+                )}
+                <div className="h-4" />
               </div>
             </div>
           </div>
@@ -1157,18 +1309,52 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
 }
 
 function RecordsTab({ records, onEdit }: { records: FinanceRecord[]; onEdit: (r: FinanceRecord) => void }) {
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return records
+    return records.filter(r =>
+      r.description?.toLowerCase().includes(q) ||
+      r.category.toLowerCase().includes(q) ||
+      r.amount.toString().includes(q) ||
+      (r.cardName?.toLowerCase().includes(q))
+    )
+  }, [records, search])
+
   return (
     <div className="px-4 pt-3 flex flex-col gap-2 pb-4">
-      {records.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <div className="text-4xl mb-3">📭</div>
-          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายการในเดือนนี้</div>
+      {/* Search bar */}
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[15px] pointer-events-none">🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="ค้นหา รายการ, หมวด, ยอดเงิน..."
+          className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-9 py-2.5 text-[13px] outline-none shadow-sm"
+        />
+        {search && (
+          <button onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-[16px] active:scale-90">✕</button>
+        )}
+      </div>
+      {search.trim() && (
+        <div className="text-[12px] text-gray-400 -mt-1">
+          พบ <span className="font-semibold text-gray-600">{filtered.length}</span> รายการ จาก {records.length}
         </div>
-      ) : records.map(r => {
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <div className="text-4xl mb-3">{search ? '🔍' : '📭'}</div>
+          <div className="font-medium text-gray-500 mb-1">{search ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีรายการในเดือนนี้'}</div>
+        </div>
+      ) : filtered.map(r => {
         const catColor = CAT_COLORS[r.category] ?? (r.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')
         return (
           <div key={r.id} className="bg-white rounded-xl px-4 py-3 shadow-sm flex items-center gap-3">
-            {/* Icon bubble — color by category */}
+            {/* Icon bubble */}
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${catColor}`}>
               {CAT_ICONS[r.category] ?? (r.type === 'income' ? '💚' : '📦')}
             </div>
@@ -1179,6 +1365,9 @@ function RecordsTab({ records, onEdit }: { records: FinanceRecord[]; onEdit: (r:
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${catColor}`}>{r.category}</span>
                 <span className="text-[11px] text-gray-400">{r.date}</span>
                 {r.cardName && <span className="text-[10px] text-gray-400 bg-gray-50 px-1 rounded">{r.cardName}</span>}
+                {(r.installmentTotal ?? 0) > 1 && (
+                  <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 rounded-full">งวด {r.installmentCurrent}/{r.installmentTotal}</span>
+                )}
               </div>
             </div>
             {/* Amount + actions */}
