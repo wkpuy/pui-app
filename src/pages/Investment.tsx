@@ -8,6 +8,7 @@ import { formatCurrency, formatPct } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
 import { Toast } from '../components/Card'
 import Button, { IconButton } from '../components/Button'
+import DividendScannerModal from './DividendScannerModal'
 
 const TYPE_LABELS: Record<InvestmentType, string> = {
   thai_stock: 'หุ้นไทย', foreign_stock: 'หุ้นต่างประเทศ',
@@ -28,6 +29,7 @@ export default function Investment() {
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [sortKey, setSortKey] = useState<'default' | 'gain' | 'loss' | 'value'>('default')
+  const [showScanner, setShowScanner] = useState(false)
 
   const investments = useLiveQuery(() => db.investments.orderBy('type').toArray())
   const dividends = useLiveQuery(() => db.dividends.toArray())
@@ -177,6 +179,12 @@ export default function Investment() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <Toast message={toastMsg?.text ?? null} type={toastMsg?.type} onDone={() => setToastMsg(null)} />
+      {showScanner && (
+        <DividendScannerModal
+          portfolioStocks={investments?.filter(i => i.type === 'thai_stock') ?? []}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
       <PageHeader
         title="การลงทุน"
         gradient="from-blue-500 to-cyan-600"
@@ -196,13 +204,21 @@ export default function Investment() {
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => syncPrices(false)}
-              disabled={syncing}
-              className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1 flex-shrink-0"
-            >
-              {syncing ? '⏳' : '🔄'} {syncing ? 'กำลังอัพเดท...' : 'Sync ราคา'}
-            </button>
+            <div className="flex flex-col gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => syncPrices(false)}
+                disabled={syncing}
+                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 disabled:opacity-60 flex items-center gap-1"
+              >
+                {syncing ? '⏳' : '🔄'} {syncing ? 'กำลังอัพเดท...' : 'Sync ราคา'}
+              </button>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="bg-white/20 text-white text-xs font-semibold px-3 py-1.5 rounded-xl active:scale-95 flex items-center gap-1"
+              >
+                🔍 สแกนปันผล
+              </button>
+            </div>
           </div>
           {lastSync && <div className="text-[11px] opacity-60 mt-1">อัพเดทล่าสุด {lastSync}</div>}
         </div>
