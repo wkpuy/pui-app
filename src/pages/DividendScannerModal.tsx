@@ -101,6 +101,11 @@ function generateAnalysisText(
   lines.push('')
 
   lines.push('--- ประวัติปันผลรายปี ---')
+  if (result.currentYearDividends.length > 0) {
+    const curTotal = result.currentYearDividends.reduce((s, d) => s + d.amount, 0)
+    const curYr = result.currentYearDividends[0].year
+    lines.push(`  ${curYr}: ฿${curTotal.toFixed(2)} (${result.currentYearDividends.length} ครั้ง) ⚠️ ยังไม่จบปี — ไม่นำไปคำนวณ CAGR`)
+  }
   ;[...result.annualDividends].reverse().forEach((ann, i) => {
     const y = result.historicalYields[result.annualDividends.length - 1 - i]
     lines.push(`  ${ann.year}: ฿${ann.total.toFixed(2)} (${ann.count} ครั้ง)${y ? ` yield ณ ปีนั้น ${(y * 100).toFixed(1)}%` : ''}`)
@@ -311,8 +316,27 @@ function DetailCard({
           {/* Annual dividend history */}
           <div className="text-xs font-semibold text-gray-500 mb-2">ปันผลรายปี</div>
           <div className="space-y-1.5">
-            {[...result.annualDividends].reverse().map(ann => {
-              const histYield = result.historicalYields[result.annualDividends.indexOf(ann)]
+            {/* Current year (incomplete) — shown first, greyed out */}
+            {result.currentYearDividends.length > 0 && (() => {
+              const total = result.currentYearDividends.reduce((s, d) => s + d.amount, 0)
+              const yr = result.currentYearDividends[0].year
+              return (
+                <div key={`cur-${yr}`} className="flex items-center gap-2 opacity-60">
+                  <div className="w-20 text-right text-[11px] text-gray-400 leading-tight">
+                    <div>{yr}</div>
+                    <div className="text-[9px]">(ยังไม่จบปี)</div>
+                  </div>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="h-2 rounded-full bg-gray-300 w-1/3" />
+                  </div>
+                  <div className="w-10 text-[11px] text-gray-400">฿{total.toFixed(2)}</div>
+                </div>
+              )
+            })()}
+            {/* Complete years — descending order */}
+            {[...result.annualDividends].reverse().map((ann, i) => {
+              const idx = result.annualDividends.length - 1 - i
+              const histYield = result.historicalYields[idx]
               return (
                 <YieldBar
                   key={ann.year}

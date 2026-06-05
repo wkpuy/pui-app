@@ -31,17 +31,18 @@ export interface ScanResult {
   pricePercentile: number          // 0–100 in 5yr range
 
   // Dividend data
-  dividends: DividendRecord[]
-  annualDividends: AnnualDividend[]
+  dividends: DividendRecord[]           // complete-year dividends (5 full calendar years)
+  currentYearDividends: DividendRecord[] // current year so far (incomplete — display only)
+  annualDividends: AnnualDividend[]     // grouped by complete year
   lastAnnualDiv: number            // sum of most recent 12mo (may include special)
   regularLastAnnualDiv: number     // sum excluding detected special dividends
   hasSpecialDividend: boolean      // true if a one-off outlier was detected in last 12mo
   currentYield: number             // regularLastAnnualDiv / currentPrice (0–1)
-  dividendYears: number            // years with at least 1 payment
+  dividendYears: number            // complete years with at least 1 payment (max 5)
   consistency: number              // dividendYears / 5 (0–1)
-  growthCAGR: number               // median of YoY growth rates (robust to endpoint outliers)
-  frequency: number                // avg payments per year
-  hasDividendCut: boolean          // any year dropped >50%
+  growthCAGR: number               // median of YoY growth rates on complete years only
+  frequency: number                // avg payments per year (complete years only)
+  hasDividendCut: boolean          // any complete year dropped >50%
 
   // Historical yield analysis
   historicalYields: number[]       // yearly yield at year-end price (using regular div)
@@ -299,6 +300,7 @@ export async function scanStock(stock: StockUniverse): Promise<ScanResult> {
     fiftyTwoWeekLow: 0,
     pricePercentile: 50,
     dividends: [],
+    currentYearDividends: [],
     annualDividends: [],
     lastAnnualDiv: 0,
     regularLastAnnualDiv: 0,
@@ -334,11 +336,20 @@ export async function scanStock(stock: StockUniverse): Promise<ScanResult> {
   const allPrices = prices.map(p => p.close)
   const pricePercentile = calcPercentile(currentPrice, allPrices)
 
-  // Dividend calculations
-  const fiveYearsAgo = new Date()
-  fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
-  const divs5yr = dividends.filter(d => new Date(d.date) >= fiveYearsAgo)
-  const annualDividends = groupByYear(divs5yr)
+  // ── Dividend window boundaries ───────────────────────────────────────────
+  // Fix boundary-1: Start from 1 Jan of (currentYear-5) so the oldest year is COMPLETE.
+  //   Rolling "today-5yr" (old approach) would give only part of the earliest year
+  //   e.g. scan in Jun 2026 → old window starts Jun 2021 → misses Jan-May 2021 dividends.
+  // Fix boundary-2: Exclude the current (incomplete) year from all analysis metrics.
+  //   Current year dividends are shown in UI as "ปีนี้ (ยังไม่จบ)" only.
+  const currentYear = new Date().getFullYear()
+  const windowStart = new Date(`${currentYear - 5}-01-01`)
+
+  const divsInWindow = dividends.filter(d => new Date(d.date) >= windowStart)
+  const currentYearDividends = divsInWindow.filter(d => d.year === currentYear)
+  const divs5yr = divsInWindow.filter(d => d.year < currentYear)   // complete years only
+
+  const annualDividends = groupByYear(divs5yr)     // max 5 complete years
   const dividendYears = annualDividends.length
 
   // Fix #1: Separate special (one-off) dividends from regular recurring ones.
@@ -350,15 +361,16 @@ export async function scanStock(stock: StockUniverse): Promise<ScanResult> {
   const yieldBase = regularLastAnnualDiv > 0 ? regularLastAnnualDiv : lastAnnualDiv
   const currentYield = yieldBase > 0 ? yieldBase / currentPrice : 0
 
-  // Fix #5: growthCAGR now uses median-YoY on regular dividends grouped by year
+  // Fix #5: growthCAGR uses median-YoY on complete years only (current year excluded)
   const regularAnnualDivs = groupByYear(regularDivs5yr)
   const growthCAGR = calcGrowthCAGR(regularAnnualDivs.length >= 2 ? regularAnnualDivs : annualDividends)
 
+  // frequency: complete years only — current year would undercount payments
   const frequency = dividendYears > 0
     ? annualDividends.reduce((s, a) => s + a.count, 0) / dividendYears
     : 0
 
-  // Check for dividend cuts (>50% drop year-over-year) on regular dividends
+  // Check for dividend cuts (>50% drop year-over-year) on complete years
   let hasDividendCut = false
   for (let i = 1; i < annualDividends.length; i++) {
     const prev = annualDividends[i - 1].total
@@ -366,7 +378,7 @@ export async function scanStock(stock: StockUniverse): Promise<ScanResult> {
     if (prev > 0 && curr / prev < 0.5) { hasDividendCut = true; break }
   }
 
-  // Historical yield: use regular annual dividends per year for accuracy
+  // Historical yield: use regular annual dividends per complete year
   const regularByYear = new Map(regularAnnualDivs.map(a => [a.year, a.total]))
   const historicalYields: number[] = []
   for (const ann of annualDividends) {
@@ -412,6 +424,7 @@ export async function scanStock(stock: StockUniverse): Promise<ScanResult> {
     fiftyTwoWeekLow,
     pricePercentile,
     dividends: divs5yr,
+    currentYearDividends,
     annualDividends,
     lastAnnualDiv,
     regularLastAnnualDiv: yieldBase,
