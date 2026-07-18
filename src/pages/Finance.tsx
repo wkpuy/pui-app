@@ -1,12 +1,14 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, ProgressBar, Toast } from '../components/Card'
 import Button, { IconButton, CloseButton } from '../components/Button'
+import DateInput from '../components/DateInput'
 import { formatCurrency } from '../utils/calculations'
-import type { FinanceRecord, Subscription } from '../db/types'
+import { genId } from '../utils/id'
+import type { FinanceRecord, Subscription, RecurringIncome } from '../db/types'
 import { listBillFiles } from '../api/google'
 import type { BillFile, DriveFile } from '../api/google'
 import type { CreditCardTransaction } from '../api/pdfParser'
@@ -45,7 +47,7 @@ const CAT_COLORS: Record<string, string> = {
   โอนออก: 'bg-slate-100 text-slate-600',
 }
 
-type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'budget'
+type Tab = 'overview' | 'records' | 'yearly' | 'installments' | 'subscriptions' | 'budget' | 'yearlybudget' | 'recurringincome'
 
 // ── Budget config (localStorage) ──────────────────────────────────────────────
 interface BudgetConfig {
@@ -73,6 +75,198 @@ function loadBudget(): BudgetConfig {
 }
 function saveBudget(c: BudgetConfig) { localStorage.setItem('monthly_budget_v1', JSON.stringify(c)) }
 
+// ── Yearly budget config (localStorage, per year) ─────────────────────────────
+interface YBItem { id: string; name: string; budget: number; actual: number }
+interface YBIncome { budget: number; actual: number }
+type YBExpenseKey = 'health' | 'artist' | 'travel' | 'fixedAnnual' | 'other'
+type YBIncomeKey = 'bonus' | 'dividend' | 'taxRefund'
+interface YearlyBudget {
+  bonus: YBIncome        // โบนัส
+  dividend: YBIncome     // ปันผลหุ้น
+  taxRefund: YBIncome    // เงินคืนภาษี
+  health: YBItem[]       // สุขภาพ
+  artist: YBItem[]       // ศิลปินที่ชอบ
+  travel: YBItem[]       // ท่องเที่ยว
+  fixedAnnual: YBItem[]  // ค่าใช้จ่ายฟิคประจำปี
+  other: YBItem[]        // ของใช้อื่นๆ
+}
+const YB_INCOME_ROWS: { key: YBIncomeKey; label: string }[] = [
+  { key: 'bonus',     label: '🎁 โบนัส' },
+  { key: 'dividend',  label: '💰 ปันผลหุ้น' },
+  { key: 'taxRefund', label: '🧾 เงินคืนภาษี' },
+]
+const YB_GROUPS: { key: YBExpenseKey; label: string; icon: string; hint: string }[] = [
+  { key: 'health',      label: 'สุขภาพ',                icon: '💪', hint: 'หัตถการหน้า, ตรวจสุขภาพ, วิตามิน, ครีม, Ice Bath ฯลฯ' },
+  { key: 'artist',      label: 'ศิลปินที่ชอบ',          icon: '🎤', hint: 'คอนเสิร์ต, งานมีต' },
+  { key: 'travel',      label: 'ท่องเที่ยว',            icon: '✈️', hint: 'ทริปในและต่างประเทศ' },
+  { key: 'fixedAnnual', label: 'ค่าใช้จ่ายฟิคประจำปี', icon: '📌', hint: 'ค่าส่วนกลางคอนโด, ประกัน' },
+  { key: 'other',       label: 'ของใช้อื่นๆ',           icon: '📦', hint: '' },
+]
+const YB_SEED: Record<YBExpenseKey, string[]> = {
+  health: ['หัตถการหน้า', 'ตรวจสุขภาพเพิ่ม', 'วิตามิน', 'ครีม/สกินแคร์', 'อื่นๆ'],
+  artist: ['คอนเสิร์ต/งานมีต'],
+  travel: ['ท่องเที่ยว'],
+  fixedAnnual: ['ค่าส่วนกลางคอนโด', 'ประกัน', 'โปะคอนโด'],
+  other: ['ของใช้อื่นๆ'],
+}
+function makeItems(names: string[]): YBItem[] { return names.map(n => ({ id: genId(), name: n, budget: 0, actual: 0 })) }
+function defaultYearlyBudget(): YearlyBudget {
+  return {
+    bonus: { budget: 0, actual: 0 }, dividend: { budget: 0, actual: 0 }, taxRefund: { budget: 0, actual: 0 },
+    health: makeItems(YB_SEED.health),
+    artist: makeItems(YB_SEED.artist),
+    travel: makeItems(YB_SEED.travel),
+    fixedAnnual: makeItems(YB_SEED.fixedAnnual),
+    other: makeItems(YB_SEED.other),
+  }
+}
+// รองรับข้อมูลเก่า (amount / income เป็นตัวเลข) → แปลงเป็น { budget, actual }
+function normalizeIncome(v: unknown): YBIncome {
+  if (typeof v === 'number') return { budget: v, actual: 0 }
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    return { budget: Number(o.budget) || 0, actual: Number(o.actual) || 0 }
+  }
+  return { budget: 0, actual: 0 }
+}
+function normalizeItems(arr: unknown): YBItem[] {
+  if (!Array.isArray(arr)) return []
+  return arr.map(raw => {
+    const o = (raw ?? {}) as Record<string, unknown>
+    const budget = o.budget !== undefined ? Number(o.budget) || 0 : Number(o.amount) || 0
+    return { id: String(o.id ?? genId()), name: String(o.name ?? ''), budget, actual: Number(o.actual) || 0 }
+  })
+}
+function normalizeYearlyBudget(raw: unknown): YearlyBudget {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const base = defaultYearlyBudget()
+  return {
+    bonus: normalizeIncome(o.bonus),
+    dividend: normalizeIncome(o.dividend),
+    taxRefund: normalizeIncome(o.taxRefund),
+    health: o.health !== undefined ? normalizeItems(o.health) : base.health,
+    artist: o.artist !== undefined ? normalizeItems(o.artist) : base.artist,
+    travel: o.travel !== undefined ? normalizeItems(o.travel) : base.travel,
+    fixedAnnual: o.fixedAnnual !== undefined ? normalizeItems(o.fixedAnnual) : base.fixedAnnual,
+    other: o.other !== undefined ? normalizeItems(o.other) : base.other,
+  }
+}
+function loadYearlyBudgets(): Record<number, YearlyBudget> {
+  try {
+    const raw = JSON.parse(localStorage.getItem('yearly_budget_v1') ?? '{}') as Record<string, unknown>
+    const out: Record<number, YearlyBudget> = {}
+    for (const [k, v] of Object.entries(raw)) out[Number(k)] = normalizeYearlyBudget(v)
+    return out
+  } catch { return {} }
+}
+function saveYearlyBudgets(all: Record<number, YearlyBudget>) {
+  localStorage.setItem('yearly_budget_v1', JSON.stringify(all))
+}
+
+// ── รายรับประจำ (Recurring income) — auto-post helpers ────────────────────────
+function pad2(n: number) { return String(n).padStart(2, '0') }
+function clampDay(year: number, month0: number, day: number) {
+  const last = new Date(year, month0 + 1, 0).getDate()
+  return Math.min(Math.max(day, 1), last)
+}
+// สร้างรายการงวดที่ถึงกำหนดแล้ว (ตั้งแต่ startDate → วันนี้)
+function recurringOccurrences(inc: RecurringIncome, todayISO: string): { date: string; periodKey: string }[] {
+  const out: { date: string; periodKey: string }[] = []
+  const today = new Date(todayISO + 'T00:00:00')
+  const start = new Date((inc.startDate || todayISO) + 'T00:00:00')
+  if (isNaN(start.getTime()) || start > today) return out
+  const day = inc.dayOfMonth || 1
+  const step = inc.frequency === 'monthly' ? 1 : inc.frequency === 'quarterly' ? 3 : 12
+  let y = start.getFullYear(), m = start.getMonth()
+  for (let i = 0; i < 600; i++) {
+    const dd = clampDay(y, m, day)
+    const d = new Date(y, m, dd)
+    if (d > today) break
+    if (d >= start) {
+      const periodKey = step === 1 ? `${y}-${pad2(m + 1)}`
+        : step === 3 ? `${y}-Q${Math.floor(m / 3) + 1}`
+        : `${y}`
+      out.push({ date: `${y}-${pad2(m + 1)}-${pad2(dd)}`, periodKey })
+    }
+    m += step
+    while (m > 11) { m -= 12; y++ }
+  }
+  return out
+}
+// วันจ่ายงวดถัดไป (สำหรับแสดงผล)
+function recurringNextDate(inc: RecurringIncome, todayISO: string): string {
+  const today = new Date(todayISO + 'T00:00:00')
+  const start = new Date((inc.startDate || todayISO) + 'T00:00:00')
+  const day = inc.dayOfMonth || 1
+  const step = inc.frequency === 'monthly' ? 1 : inc.frequency === 'quarterly' ? 3 : 12
+  // เดินหน้าจาก startDate จนถึงงวดแรกที่ >= วันนี้
+  let y = start.getFullYear(), m = start.getMonth()
+  for (let i = 0; i < 600; i++) {
+    const dd = clampDay(y, m, day)
+    const d = new Date(y, m, dd)
+    if (d >= today) return `${y}-${pad2(m + 1)}-${pad2(dd)}`
+    m += step
+    while (m > 11) { m -= 12; y++ }
+  }
+  return ''
+}
+// ลงรายการรายรับประจำที่ถึงกำหนดทั้งหมด (กันซ้ำด้วย rawRef + lastPostedPeriodKey)
+// ใช้ lock กันรันซ้อน (เช่น React StrictMode เรียก effect ซ้ำ) ที่ทำให้เกิด race → รายการซ้ำ
+// ลงงวดที่ถึงกำหนดของรายการเดียว (กันซ้ำด้วย rawRef + lastPostedPeriodKey) → คืนจำนวนที่ลงใหม่
+async function postItemOccurrences(inc: RecurringIncome, todayISO: string): Promise<number> {
+  if (!inc.id) return 0
+  const occ = recurringOccurrences(inc, todayISO)
+  const last = inc.lastPostedPeriodKey ?? ''
+  let newLast = last
+  let added = 0
+  for (const o of occ) {
+    if (o.periodKey <= last) continue
+    const rawRef = `recur_${inc.id}_${o.periodKey}`
+    // check + add แบบ atomic ในทรานแซกชันเดียว กันซ้ำซ้อน
+    await db.transaction('rw', db.financeRecords, async () => {
+      const exists = await db.financeRecords.where('rawRef').equals(rawRef).count()
+      if (!exists) {
+        await db.financeRecords.add({
+          date: o.date, type: 'income', amount: inc.amount,
+          category: inc.category, description: inc.name,
+          source: 'manual', rawRef,
+        })
+        added++
+      }
+    })
+    if (o.periodKey > newLast) newLast = o.periodKey
+  }
+  if (newLast !== last) await db.recurringIncome.update(inc.id, { lastPostedPeriodKey: newLast })
+  return added
+}
+
+// ลงรายการรายรับประจำที่ถึงกำหนดทั้งหมด (เฉพาะที่เปิด autoPost)
+// ใช้ lock กันรันซ้อน (เช่น React StrictMode เรียก effect ซ้ำ) ที่ทำให้เกิด race → รายการซ้ำ
+let recurPostLock: Promise<void> | null = null
+function postDueRecurringIncomes(): Promise<void> {
+  if (recurPostLock) return recurPostLock
+  recurPostLock = (async () => {
+    try {
+      const todayISO = new Date().toISOString().slice(0, 10)
+      const items = await db.recurringIncome.toArray()
+      for (const inc of items) {
+        if (!inc.active || !inc.autoPost) continue
+        await postItemOccurrences(inc, todayISO)
+      }
+    } finally {
+      recurPostLock = null
+    }
+  })()
+  return recurPostLock
+}
+
+// ลงงวดที่ถึงกำหนดของรายการเดียวแบบ manual (ไม่สนใจ autoPost) → คืนจำนวนที่ลง
+async function postRecurringItemNow(id: number): Promise<number> {
+  const inc = await db.recurringIncome.get(id)
+  if (!inc || !inc.active) return 0
+  return postItemOccurrences(inc, new Date().toISOString().slice(0, 10))
+}
+
 export default function Finance() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('overview')
@@ -81,6 +275,9 @@ export default function Finance() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteToast, setDeleteToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  // ลงรายการรายรับประจำที่ถึงกำหนด ทุกครั้งที่เปิดหน้าการเงิน
+  useEffect(() => { postDueRecurringIncomes().catch(() => {}) }, [])
 
   const records = useLiveQuery(() => db.financeRecords.orderBy('date').reverse().toArray())
 
@@ -114,7 +311,7 @@ export default function Finance() {
       {/* Tabs */}
       <div className="relative bg-white border-b border-gray-100 flex items-center">
         <div className="flex overflow-x-auto [&::-webkit-scrollbar]:hidden flex-1">
-          {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อน'], ['subscriptions', 'Subs'], ['budget', 'งบเดือน']] as [Tab, string][]).map(([t, l]) => (
+          {([['overview', 'ภาพรวม'], ['records', 'รายการ'], ['yearly', 'รายปี'], ['installments', 'ผ่อน'], ['subscriptions', 'Subs'], ['recurringincome', 'รายรับประจำ'], ['budget', 'งบเดือน'], ['yearlybudget', 'งบปี']] as [Tab, string][]).map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-shrink-0 px-3 py-3 text-[12px] font-semibold border-b-2 transition-colors ${tab === t ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-400'}`}>
               {l}
@@ -149,6 +346,8 @@ export default function Finance() {
         {tab === 'installments' && <InstallmentsTab month={month} />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'budget' && <BudgetTab month={month} />}
+        {tab === 'yearlybudget' && <YearlyBudgetTab />}
+        {tab === 'recurringincome' && <RecurringIncomeTab />}
       </div>
 
       {showForm && (
@@ -933,7 +1132,11 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
       <div className="mx-4 mb-4">
         <Card className="!bg-blue-50">
           <div className="text-[13px] font-semibold text-blue-700 mb-2">📧 Sync จาก Gmail</div>
-          <div className="text-[12px] text-blue-600 mb-3">อ่านอีเมลโอนเงิน กสิกร/กรุงเทพ อัตโนมัติ</div>
+          <div className="text-[12px] text-blue-600 mb-2">อ่านอีเมลโอนเงิน กสิกร/กรุงเทพ อัตโนมัติ</div>
+          <div className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 mb-3 leading-relaxed">
+            ⚠️ ธนาคารส่งอีเมลเฉพาะรายการ <b>เงินออก</b> (โอนออก/จ่ายบิล) เท่านั้น — เงินเข้าบัญชีไม่มีแจ้งทางอีเมล
+            <br />👉 <b>รายรับ</b> ให้กด <b>“＋ เพิ่ม”</b> มุมขวาบน แล้วเลือก <b>“รายรับ”</b>
+          </div>
           {!tokens?.accessToken ? (
             <div className="text-[12px] text-blue-500 mb-2">ต้องต่อ Google ก่อน (Settings)</div>
           ) : (
@@ -942,7 +1145,7 @@ function OverviewTab({ income, expense, net, expenseByCategory, monthRecords, mo
               disabled={emailsLoading}
               className="bg-blue-600 text-white text-[13px] font-semibold px-4 py-2 rounded-xl active:scale-95 w-full disabled:opacity-60"
             >
-              {emailsLoading ? '⏳ กำลัง Sync...' : '📧 Sync ธนาคาร'}
+              {emailsLoading ? '⏳ กำลัง Sync...' : '📧 Sync ธนาคาร (เฉพาะเงินออก)'}
             </button>
           )}
         </Card>
@@ -1948,9 +2151,8 @@ function SubscriptionForm({ editItem, onClose }: { editItem: Subscription | null
 
         <div>
           <div className="text-[12px] font-semibold text-gray-500 mb-1">ต่ออายุครั้งถัดไป</div>
-          <input type="date" value={form.nextRenewalDate}
-            onChange={e => setForm(v => ({ ...v, nextRenewalDate: e.target.value }))}
-            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+          <DateInput value={form.nextRenewalDate}
+            onChange={e => setForm(v => ({ ...v, nextRenewalDate: e.target.value }))} />
         </div>
 
         <div>
@@ -2032,8 +2234,7 @@ function FinanceForm({ editRecord, onClose }: { editRecord: FinanceRecord | null
             </button>
           ))}
         </div>
-        <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+        <DateInput value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))} />
         <input type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount}
           onChange={e => setForm(v => ({ ...v, amount: e.target.value }))}
           className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
@@ -2307,6 +2508,501 @@ function BudgetConfigSheet({ config, onSave, onClose }: {
         <Button onClick={save}>
           บันทึก
         </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── งบปี (Yearly budget planner: งบ vs จริง) ──────────────────────────────────
+function YearlyBudgetTab() {
+  const currentYear = new Date().getFullYear()
+  const [all, setAll] = useState<Record<number, YearlyBudget>>(loadYearlyBudgets)
+  const [year, setYear] = useState(currentYear)
+  const [edit, setEdit] = useState(false)
+
+  const budget = all[year] ?? defaultYearlyBudget()
+
+  const years = [...new Set([
+    ...Object.keys(all).map(Number),
+    currentYear - 1, currentYear, currentYear + 1, currentYear + 2,
+  ])].sort((a, b) => b - a)
+
+  function update(next: YearlyBudget) {
+    const merged = { ...all, [year]: next }
+    setAll(merged)
+    saveYearlyBudgets(merged)
+  }
+
+  function setIncome(key: YBIncomeKey, field: keyof YBIncome, v: number) {
+    update({ ...budget, [key]: { ...budget[key], [field]: v } })
+  }
+  function setItems(key: YBExpenseKey, items: YBItem[]) {
+    update({ ...budget, [key]: items })
+  }
+  function addItem(key: YBExpenseKey) {
+    setItems(key, [...budget[key], { id: genId(), name: '', budget: 0, actual: 0 }])
+  }
+  function editItem(key: YBExpenseKey, id: string, patch: Partial<YBItem>) {
+    setItems(key, budget[key].map(it => (it.id === id ? { ...it, ...patch } : it)))
+  }
+  function removeItem(key: YBExpenseKey, id: string) {
+    setItems(key, budget[key].filter(it => it.id !== id))
+  }
+
+  const incomeBudget = YB_INCOME_ROWS.reduce((s, r) => s + (budget[r.key].budget || 0), 0)
+  const incomeActual = YB_INCOME_ROWS.reduce((s, r) => s + (budget[r.key].actual || 0), 0)
+  const groupBudget = (key: YBExpenseKey) => budget[key].reduce((s, it) => s + (it.budget || 0), 0)
+  const groupActual = (key: YBExpenseKey) => budget[key].reduce((s, it) => s + (it.actual || 0), 0)
+  const expenseBudget = YB_GROUPS.reduce((s, g) => s + groupBudget(g.key), 0)
+  const expenseActual = YB_GROUPS.reduce((s, g) => s + groupActual(g.key), 0)
+  const surplusBudget = incomeBudget - expenseBudget
+  const surplusActual = incomeActual - expenseActual
+  const monthlySetAside = Math.round(expenseBudget / 12)
+
+  return (
+    <div className="px-4 py-4 pb-8 space-y-3">
+      {/* Year selector */}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden flex-1 pb-0.5">
+          {years.map(y => (
+            <button key={y} onClick={() => setYear(y)}
+              className={`flex-shrink-0 px-4 py-2 rounded-xl text-[13px] font-semibold ${year === y ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 shadow-sm'}`}>
+              {y}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setEdit(v => !v)}
+          className={`flex-shrink-0 text-[12px] font-semibold px-3 py-2 rounded-xl ${edit ? 'bg-emerald-600 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
+          {edit ? '✓ เสร็จ' : '✏️ แก้ไข'}
+        </button>
+      </div>
+
+      {/* Hero */}
+      <div className={`rounded-2xl p-4 text-white ${surplusBudget >= 0 ? 'bg-gradient-to-br from-indigo-500 to-violet-600' : 'bg-gradient-to-br from-rose-500 to-red-600'}`}>
+        <div className="text-[11px] opacity-75 mb-0.5">คงเหลือทั้งปี {year} (รายได้ − ค่าใช้จ่าย)</div>
+        <div className="text-3xl font-bold">{formatCurrency(surplusBudget, 0)}</div>
+        <div className="text-[11px] opacity-75 mt-0.5">ควรกันไว้เดือนละ {formatCurrency(monthlySetAside, 0)}</div>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <div className="bg-white/20 rounded-xl p-2.5 text-center">
+            <div className="text-[10px] opacity-80">คงเหลือตามงบ</div>
+            <div className="text-[15px] font-bold">{formatCurrency(surplusBudget, 0)}</div>
+          </div>
+          <div className="bg-white/20 rounded-xl p-2.5 text-center">
+            <div className="text-[10px] opacity-80">คงเหลือจริง</div>
+            <div className={`text-[15px] font-bold ${surplusActual >= 0 ? 'text-green-200' : 'text-red-200'}`}>
+              {formatCurrency(surplusActual, 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Income */}
+      <Card>
+        <CardTitle>รายได้ของปี</CardTitle>
+        <div className="text-[10px] text-gray-400 mt-0.5">ตั้งงบ (คาดว่าจะได้) เทียบกับที่ได้จริง</div>
+        <YBAmountHeader />
+        {YB_INCOME_ROWS.map(r => (
+          <YBAmountRow
+            key={r.key} name={r.label}
+            budget={budget[r.key].budget} actual={budget[r.key].actual}
+            edit={edit} income
+            onBudget={v => setIncome(r.key, 'budget', v)}
+            onActual={v => setIncome(r.key, 'actual', v)}
+          />
+        ))}
+        <YBTotalRow label="รวมรายได้" budget={incomeBudget} actual={incomeActual} income />
+      </Card>
+
+      {/* Expense groups */}
+      {YB_GROUPS.map(g => (
+        <Card key={g.key}>
+          <div className="flex items-center justify-between">
+            <CardTitle>{g.icon} {g.label}</CardTitle>
+            <div className="text-right text-[11px]">
+              <span className="text-gray-400">งบ {formatCurrency(groupBudget(g.key), 0)}</span>
+              <span className="mx-1 text-gray-300">·</span>
+              <span className="font-semibold text-gray-800">จริง {formatCurrency(groupActual(g.key), 0)}</span>
+            </div>
+          </div>
+          {g.hint && <div className="text-[10px] text-gray-400 mt-0.5">{g.hint}</div>}
+          <YBAmountHeader />
+          <div className="space-y-1">
+            {budget[g.key].length === 0 && !edit && (
+              <div className="text-[12px] text-gray-300 py-1">— ยังไม่มีรายการ</div>
+            )}
+            {budget[g.key].map(it => (
+              edit ? (
+                <div key={it.id} className="flex items-center gap-2 py-1">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <input
+                      type="text" placeholder="ชื่อรายการ"
+                      value={it.name}
+                      onChange={e => editItem(g.key, it.id, { name: e.target.value })}
+                      className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-[13px] w-full"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number" placeholder="งบ"
+                        value={it.budget || ''}
+                        onChange={e => editItem(g.key, it.id, { budget: parseFloat(e.target.value) || 0 })}
+                        className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-[13px] flex-1 min-w-0 text-right"
+                      />
+                      <input
+                        type="number" placeholder="จริง"
+                        value={it.actual || ''}
+                        onChange={e => editItem(g.key, it.id, { actual: parseFloat(e.target.value) || 0 })}
+                        className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-[13px] flex-1 min-w-0 text-right"
+                      />
+                    </div>
+                  </div>
+                  <button onClick={() => removeItem(g.key, it.id)}
+                    className="text-red-400 text-[15px] px-1 active:scale-90">🗑️</button>
+                </div>
+              ) : (
+                (it.name || it.budget > 0 || it.actual > 0) && (
+                  <YBAmountRow key={it.id} name={it.name || '—'} budget={it.budget} actual={it.actual} edit={false} />
+                )
+              )
+            ))}
+            {edit && (
+              <button onClick={() => addItem(g.key)}
+                className="w-full mt-1 text-[12px] font-semibold text-indigo-600 bg-indigo-50 rounded-lg py-2 active:scale-[0.98]">
+                ＋ เพิ่มรายการ
+              </button>
+            )}
+          </div>
+        </Card>
+      ))}
+
+      {/* Summary */}
+      <Card>
+        <CardTitle>สรุปงบปี {year}</CardTitle>
+        <YBAmountHeader />
+        <YBAmountRow name="รายได้รวม" budget={incomeBudget} actual={incomeActual} edit={false} income />
+        {YB_GROUPS.map(g => (
+          <YBAmountRow key={g.key} name={`${g.icon} ${g.label}`} budget={groupBudget(g.key)} actual={groupActual(g.key)} edit={false} />
+        ))}
+        <YBTotalRow label="รวมค่าใช้จ่าย" budget={expenseBudget} actual={expenseActual} />
+        <div className="border-t pt-2 mt-1 flex items-center justify-between text-[14px] font-bold">
+          <span className="text-gray-700">คงเหลือ</span>
+          <div className="flex gap-4">
+            <span className={`w-24 text-right ${surplusBudget >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(surplusBudget, 0)}</span>
+            <span className={`w-24 text-right ${surplusActual >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(surplusActual, 0)}</span>
+          </div>
+        </div>
+        {expenseActual > expenseBudget ? (
+          <div className="bg-red-50 rounded-xl px-3 py-2 text-[12px] text-red-600 font-semibold mt-2">
+            ⚠️ ใช้จริงเกินงบไป {formatCurrency(expenseActual - expenseBudget, 0)}
+          </div>
+        ) : expenseBudget > 0 && (
+          <div className="bg-green-50 rounded-xl px-3 py-2 text-[12px] text-green-700 font-semibold mt-2">
+            ✅ ใช้จริงยังไม่เกินงบ (เหลืองบอีก {formatCurrency(expenseBudget - expenseActual, 0)})
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// หัวคอลัมน์ งบ / จริง
+function YBAmountHeader() {
+  return (
+    <div className="flex items-center justify-end gap-4 pt-1.5 pb-0.5 text-[10px] font-semibold text-gray-400 border-b border-gray-100">
+      <span className="w-24 text-right">งบ</span>
+      <span className="w-24 text-right">จริง</span>
+    </div>
+  )
+}
+
+// แถวแสดง/แก้ไข งบ + จริง
+function YBAmountRow({ name, budget, actual, edit, income, onBudget, onActual }: {
+  name: string; budget: number; actual: number; edit: boolean; income?: boolean
+  onBudget?: (v: number) => void; onActual?: (v: number) => void
+}) {
+  const fmt = (v: number) => `${income ? '' : v > 0 ? '−' : ''}${formatCurrency(v, 0)}`
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0 gap-2">
+      <span className="text-[13px] text-gray-700 flex-1 min-w-0 truncate">{name}</span>
+      {edit ? (
+        <div className="flex gap-2">
+          <input type="number" placeholder="งบ" value={budget || ''}
+            onChange={e => onBudget?.(parseFloat(e.target.value) || 0)}
+            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-[13px] w-24 text-right" />
+          <input type="number" placeholder="จริง" value={actual || ''}
+            onChange={e => onActual?.(parseFloat(e.target.value) || 0)}
+            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-[13px] w-24 text-right" />
+        </div>
+      ) : (
+        <div className="flex gap-4 text-[13px]">
+          <span className="w-24 text-right text-gray-400">{fmt(budget)}</span>
+          <span className={`w-24 text-right font-semibold ${income ? 'text-emerald-600' : 'text-gray-700'}`}>{fmt(actual)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// แถวรวม (ตัวหนา)
+function YBTotalRow({ label, budget, actual, income }: {
+  label: string; budget: number; actual: number; income?: boolean
+}) {
+  const fmt = (v: number) => `${income ? '' : v > 0 ? '−' : ''}${formatCurrency(v, 0)}`
+  return (
+    <div className="border-t pt-2 mt-1 flex items-center justify-between text-[13px] font-bold gap-2">
+      <span className="text-gray-700 flex-1 min-w-0">{label}</span>
+      <div className="flex gap-4">
+        <span className="w-24 text-right text-gray-500">{fmt(budget)}</span>
+        <span className={`w-24 text-right ${income ? 'text-emerald-600' : 'text-gray-900'}`}>{fmt(actual)}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── รายรับประจำ (Recurring income) ────────────────────────────────────────────
+const FREQ_LABEL: Record<RecurringIncome['frequency'], string> = {
+  monthly: 'รายเดือน', quarterly: 'ราย 3 เดือน', yearly: 'รายปี',
+}
+function monthlyEqIncome(inc: RecurringIncome) {
+  return inc.frequency === 'monthly' ? inc.amount
+    : inc.frequency === 'quarterly' ? inc.amount / 3
+    : inc.amount / 12
+}
+
+function RecurringIncomeTab() {
+  const items = useLiveQuery(() => db.recurringIncome.toArray())
+  const [showForm, setShowForm] = useState(false)
+  const [editItem, setEditItem] = useState<RecurringIncome | null>(null)
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+
+  async function manualPost(inc: RecurringIncome) {
+    if (!inc.id) return
+    const n = await postRecurringItemNow(inc.id)
+    setToast(n > 0 ? { text: `ลงรายรับ ${n} งวดแล้ว`, type: 'success' } : { text: 'ยังไม่มีงวดที่ถึงกำหนด', type: 'error' })
+  }
+
+  const list = (items ?? []).slice().sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+  const active = list.filter(i => i.active)
+  const totalMonthly = active.reduce((s, i) => s + monthlyEqIncome(i), 0)
+  const totalYearly = active.reduce((s, i) => s + (i.frequency === 'monthly' ? i.amount * 12 : i.frequency === 'quarterly' ? i.amount * 4 : i.amount), 0)
+  const todayISO = new Date().toISOString().slice(0, 10)
+
+  return (
+    <div className="px-4 pt-3 pb-4">
+      <div className="flex gap-2 mb-3">
+        <Card className="!p-3 flex-1 text-center">
+          <div className="text-[11px] text-gray-400 font-semibold">รับเฉลี่ย/เดือน</div>
+          <div className="text-[16px] font-bold text-emerald-600">{formatCurrency(totalMonthly, 0)}</div>
+        </Card>
+        <Card className="!p-3 flex-1 text-center">
+          <div className="text-[11px] text-gray-400 font-semibold">รวม/ปี</div>
+          <div className="text-[16px] font-bold text-gray-900">{formatCurrency(totalYearly, 0)}</div>
+        </Card>
+      </div>
+
+      <div className="text-[11px] text-gray-500 bg-emerald-50 rounded-lg px-3 py-2 mb-3 leading-relaxed">
+        💡 รายการที่เปิด <b>“ลงอัตโนมัติ”</b> ระบบจะบันทึกเป็น <b>รายรับ</b> ให้เองทุกงวดเมื่อถึงกำหนด (ตอนเปิดหน้าการเงิน)
+      </div>
+
+      <button
+        onClick={() => { setEditItem(null); setShowForm(true) }}
+        className="bg-emerald-600 text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl active:scale-95 w-full mb-3"
+      >
+        ＋ เพิ่มรายรับประจำ
+      </button>
+
+      {list.length === 0 ? (
+        <div className="text-center text-gray-400 py-12 text-[14px]">
+          <div className="text-4xl mb-3">💚</div>
+          <div className="font-medium text-gray-500 mb-1">ยังไม่มีรายรับประจำ</div>
+          <div className="text-[13px]">เช่น เงินเดือน โบนัส คืนภาษี</div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+          {list.map((inc, idx, arr) => {
+            const next = recurringNextDate(inc, todayISO)
+            const nextLabel = next
+              ? new Date(next + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+              : '—'
+            return (
+              <div key={inc.id}
+                className={`px-4 py-3 ${idx < arr.length - 1 ? 'border-b border-gray-50' : ''} ${!inc.active ? 'opacity-50' : ''}`}>
+                <div onClick={() => { setEditItem(inc); setShowForm(true) }}
+                  className="flex items-center justify-between cursor-pointer active:opacity-70">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-lg flex-shrink-0">{CAT_ICONS[inc.category] ?? '💚'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 text-[14px] truncate">{inc.name}</div>
+                      <div className="text-[11px] text-gray-400">
+                        {FREQ_LABEL[inc.frequency]} · ทุกวันที่ {inc.dayOfMonth}
+                        {inc.autoPost ? ' · ⚡ ลงอัตโนมัติ' : ' · ✋ ลงเอง'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right ml-2">
+                    <div className="text-[14px] font-bold text-emerald-600">+{formatCurrency(inc.amount, 0)}</div>
+                    <div className="text-[10px] font-semibold text-gray-400">
+                      {inc.active ? `งวดหน้า ${nextLabel}` : 'ปิดอยู่'}
+                    </div>
+                  </div>
+                </div>
+                {inc.active && !inc.autoPost && (
+                  <button onClick={() => manualPost(inc)}
+                    className="mt-2 w-full text-[12px] font-semibold text-emerald-700 bg-emerald-50 rounded-lg py-1.5 active:scale-[0.98]">
+                    ＋ ลงงวดที่ถึงกำหนดตอนนี้
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showForm && <RecurringIncomeForm editItem={editItem} onClose={() => { setShowForm(false); setEditItem(null) }} />}
+      <Toast message={toast?.text ?? null} type={toast?.type} onDone={() => setToast(null)} />
+    </div>
+  )
+}
+
+const RECUR_PRESETS: { name: string; category: string; frequency: RecurringIncome['frequency'] }[] = [
+  { name: 'เงินเดือน', category: 'เงินเดือน', frequency: 'monthly' },
+  { name: 'โบนัส',     category: 'โบนัส',     frequency: 'yearly' },
+  { name: 'คืนภาษี',   category: 'อื่นๆ',      frequency: 'yearly' },
+]
+
+function RecurringIncomeForm({ editItem, onClose }: { editItem: RecurringIncome | null; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: editItem?.name ?? '',
+    amount: editItem?.amount?.toString() ?? '',
+    category: editItem?.category ?? 'เงินเดือน',
+    frequency: editItem?.frequency ?? 'monthly' as RecurringIncome['frequency'],
+    dayOfMonth: editItem?.dayOfMonth?.toString() ?? '25',
+    startDate: editItem?.startDate ?? new Date().toISOString().slice(0, 10),
+    active: editItem?.active ?? true,
+    autoPost: editItem?.autoPost ?? true,
+    notes: editItem?.notes ?? '',
+  })
+
+  function applyPreset(p: typeof RECUR_PRESETS[number]) {
+    setForm(v => ({ ...v, name: p.name, category: p.category, frequency: p.frequency }))
+  }
+
+  async function save() {
+    const data: Omit<RecurringIncome, 'id'> = {
+      name: form.name.trim(),
+      amount: parseFloat(form.amount) || 0,
+      category: form.category,
+      frequency: form.frequency,
+      dayOfMonth: Math.min(Math.max(parseInt(form.dayOfMonth) || 1, 1), 31),
+      startDate: form.startDate,
+      active: form.active,
+      autoPost: form.autoPost,
+      // เปลี่ยนความถี่ → รูปแบบ periodKey เปลี่ยน (รายเดือน "YYYY-MM" vs รายปี "YYYY")
+      // ต้องรีเซ็ตตัวกันซ้ำ ไม่งั้นการเทียบ string จะเพี้ยน (rawRef ยังกันลงซ้ำจริงอยู่)
+      lastPostedPeriodKey: editItem && editItem.frequency === form.frequency ? editItem.lastPostedPeriodKey : undefined,
+      notes: form.notes || undefined,
+    }
+    if (!data.name || data.amount <= 0) return
+    if (editItem?.id) await db.recurringIncome.update(editItem.id, data)
+    else await db.recurringIncome.add(data)
+    // ลงรายการที่ถึงกำหนดทันทีหลังบันทึก
+    await postDueRecurringIncomes().catch(() => {})
+    onClose()
+  }
+  async function remove() {
+    if (editItem?.id && confirm('ลบรายรับประจำนี้?\n(รายการที่ลงไปแล้วจะยังอยู่ ไม่ถูกลบ)')) {
+      await db.recurringIncome.delete(editItem.id)
+      onClose()
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full p-5 pb-8 flex flex-col gap-3 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-bold">{editItem ? 'แก้ไข' : 'เพิ่ม'}รายรับประจำ</h3>
+          <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
+        </div>
+
+        {!editItem && (
+          <div className="flex gap-2">
+            {RECUR_PRESETS.map(p => (
+              <button key={p.name} onClick={() => applyPreset(p)}
+                className="flex-1 text-[12px] font-semibold text-emerald-700 bg-emerald-50 rounded-lg py-2 active:scale-95">
+                {CAT_ICONS[p.category] ?? '💚'} {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">ชื่อรายการ</div>
+          <input placeholder="เงินเดือน, โบนัส, คืนภาษี..." value={form.name}
+            onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
+            className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">จำนวนเงิน</div>
+            <input type="number" placeholder="50000" value={form.amount}
+              onChange={e => setForm(v => ({ ...v, amount: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">หมวดหมู่</div>
+            <select value={form.category}
+              onChange={e => setForm(v => ({ ...v, category: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full bg-white">
+              {CATEGORIES_INCOME.map(c => <option key={c} value={c}>{CAT_ICONS[c] ?? '💚'} {c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">รอบเข้า</div>
+            <select value={form.frequency}
+              onChange={e => setForm(v => ({ ...v, frequency: e.target.value as RecurringIncome['frequency'] }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full bg-white">
+              <option value="monthly">รายเดือน</option>
+              <option value="quarterly">ราย 3 เดือน</option>
+              <option value="yearly">รายปี</option>
+            </select>
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-gray-500 mb-1">เข้าวันที่</div>
+            <input type="number" min={1} max={31} placeholder="25" value={form.dayOfMonth}
+              onChange={e => setForm(v => ({ ...v, dayOfMonth: e.target.value }))}
+              className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[12px] font-semibold text-gray-500 mb-1">
+            เริ่มงวดแรก {form.frequency === 'monthly' ? '(กำหนดเดือนที่เริ่ม)' : '(กำหนดเดือน/ปีของงวด)'}
+          </div>
+          <DateInput value={form.startDate}
+            onChange={e => setForm(v => ({ ...v, startDate: e.target.value }))} />
+        </div>
+
+        <label className="flex items-center gap-2 text-[13px] text-gray-700">
+          <input type="checkbox" checked={form.autoPost} onChange={e => setForm(v => ({ ...v, autoPost: e.target.checked }))} />
+          ⚡ ลงรายการเป็นรายรับให้อัตโนมัติทุกงวด
+        </label>
+        <label className="flex items-center gap-2 text-[13px] text-gray-700">
+          <input type="checkbox" checked={form.active} onChange={e => setForm(v => ({ ...v, active: e.target.checked }))} />
+          ยังใช้งานอยู่
+        </label>
+
+        <div className="flex gap-2 mt-2">
+          {editItem && (
+            <button onClick={remove} className="bg-red-50 text-red-600 font-semibold px-4 py-3 rounded-xl text-sm">ลบ</button>
+          )}
+          <button onClick={save}
+            className="flex-1 bg-emerald-600 text-white font-semibold py-3 rounded-xl active:scale-95 text-sm">
+            บันทึก
+          </button>
+        </div>
       </div>
     </div>
   )

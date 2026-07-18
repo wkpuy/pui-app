@@ -6,6 +6,7 @@ import type { CondoMortgage } from '../db'
 import { formatCurrency } from '../utils/calculations'
 import { Card, CardTitle, SectionLabel, ProgressBar } from '../components/Card'
 import Button from '../components/Button'
+import DateInput from '../components/DateInput'
 
 interface AmortRow {
   month: number
@@ -377,9 +378,8 @@ function CondoForm({ condo, onClose }: { condo: CondoMortgage | null; onClose: (
         </div>
         <div>
           <div className="text-[11px] text-gray-500 mb-1">วันที่เริ่มผ่อน</div>
-          <input type="date" value={form.startDate}
-            onChange={e => setForm(v => ({ ...v, startDate: e.target.value }))}
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+          <DateInput value={form.startDate}
+            onChange={e => setForm(v => ({ ...v, startDate: e.target.value }))} />
         </div>
         <div>
           <div className="text-[11px] text-gray-500 mb-1">จ่ายเพิ่มต่อเดือน (บาท)</div>

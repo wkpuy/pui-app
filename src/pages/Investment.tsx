@@ -8,6 +8,7 @@ import { formatCurrency, formatPct } from '../utils/calculations'
 import { fetchStockPrices } from '../api/stockPrice'
 import { Toast } from '../components/Card'
 import Button, { IconButton } from '../components/Button'
+import DateInput from '../components/DateInput'
 import DividendScannerModal from './DividendScannerModal'
 
 const TYPE_LABELS: Record<InvestmentType, string> = {
@@ -499,8 +500,7 @@ function DividendPanel({ investmentId, dividends, costBasis, costPerUnit, shares
       {showAddDiv && (
         <div className="bg-white rounded-xl p-3 mb-2 flex flex-col gap-2">
           <div className="text-[12px] font-semibold text-gray-500">{editDiv ? 'แก้ไขปันผล' : 'เพิ่มปันผล'}</div>
-          <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full" />
+          <DateInput value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))} />
           <div>
             <input type="number" placeholder="ปันผล / หุ้น (บาท)" value={form.amountPerShare}
               onChange={e => handleAmountPerShare(e.target.value)}
@@ -741,9 +741,8 @@ function InvestmentForm({ editItem, onClose }: { editItem: Investment | null; on
             </div>
             <div>
               <div className="text-[12px] text-gray-500 mb-1">วันครบกำหนดกรมธรรม์</div>
-              <input type="date" value={form.insMaturity}
-                onChange={e => setForm(v => ({ ...v, insMaturity: e.target.value }))}
-                className="border border-gray-200 rounded-xl px-4 py-3 text-sm w-full" />
+              <DateInput value={form.insMaturity}
+                onChange={e => setForm(v => ({ ...v, insMaturity: e.target.value }))} />
             </div>
             <div className="text-[12px] font-bold text-indigo-600 -mb-1">ต้นทุนรวมที่จ่ายไปแล้ว</div>
             <input type="number" placeholder="ต้นทุนรวม (บาท)" value={form.costBasisDirect}

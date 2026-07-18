@@ -305,6 +305,20 @@ export interface Subscription {
   notes?: string;
 }
 
+export interface RecurringIncome {
+  id?: number;
+  name: string; // e.g. "เงินเดือน", "โบนัส", "คืนภาษี"
+  amount: number;
+  category: string; // maps to income categories (เงินเดือน/โบนัส/ปันผล/...)
+  frequency: "monthly" | "quarterly" | "yearly";
+  dayOfMonth: number; // 1-31 — วันที่เงินเข้าของเดือนนั้น
+  startDate: string; // YYYY-MM-DD — งวดแรก (กำหนดเดือน/ปีเริ่ม)
+  active: boolean;
+  autoPost: boolean; // ลงรายการเข้าหน้ารายรับ-รายจ่ายอัตโนมัติ
+  lastPostedPeriodKey?: string; // งวดล่าสุดที่ลงแล้ว (กันลงซ้ำ / กันเด้งกลับหลังลบ)
+  notes?: string;
+}
+
 export interface ChatMessage {
   id?: number;
   role: "user" | "assistant";

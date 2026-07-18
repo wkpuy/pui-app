@@ -10,13 +10,24 @@ import { syncWhoopAndSave } from '../api/whoopSync'
 
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
+// คีย์ localStorage ที่เป็นข้อมูลผู้ใช้ (ต้อง backup/restore) — ไม่รวม token/OAuth ที่ผูกกับเครื่อง
+const BACKUP_LS_KEYS = [
+  'monthly_budget_v1',   // งบเดือน
+  'yearly_budget_v1',    // งบปี
+  'pvd_calc_v1',         // PVD
+  'savings_plan_v1',     // ออมเงิน
+  'sso_pension_v1',      // ประกันสังคม (CARE)
+  'condo_monthly_extras',// จ่ายเพิ่มคอนโดรายเดือน
+  'health_plan_done',    // แผนตรวจสุขภาพที่ทำแล้ว
+]
+
 const CLEAR_SECTIONS = [
-  { key: 'home',       label: '🏠 หน้าหลัก',  tables: ['profile', 'netWorthSnapshots'] },
-  { key: 'investment', label: '📈 ลงทุน',     tables: ['investments', 'dividends'] },
-  { key: 'health',     label: '💪 สุขภาพ',    tables: ['healthRecords', 'healthDaily', 'medications', 'medicationLogs', 'lumenEntries'] },
-  { key: 'finance',    label: '💰 การเงิน',   tables: ['financeRecords', 'installments', 'subscriptions', 'salaryRecords', 'condoMortgage', 'taxRecords'] },
-  { key: 'retirement', label: '🌅 เกษียณ',    tables: ['retirementPlan', 'emergencyFund'] },
-  { key: 'coach',      label: '🤖 AI Coach',  tables: ['chatMessages'] },
+  { key: 'home',       label: '🏠 หน้าหลัก',  tables: ['profile', 'netWorthSnapshots'], lsKeys: [] },
+  { key: 'investment', label: '📈 ลงทุน',     tables: ['investments', 'dividends'], lsKeys: [] },
+  { key: 'health',     label: '💪 สุขภาพ',    tables: ['healthRecords', 'healthDaily', 'medications', 'medicationLogs', 'lumenEntries'], lsKeys: ['health_plan_done'] },
+  { key: 'finance',    label: '💰 การเงิน',   tables: ['financeRecords', 'installments', 'subscriptions', 'salaryRecords', 'condoMortgage', 'taxRecords', 'recurringIncome'], lsKeys: ['monthly_budget_v1', 'yearly_budget_v1', 'condo_monthly_extras'] },
+  { key: 'retirement', label: '🌅 เกษียณ',    tables: ['retirementPlan', 'emergencyFund'], lsKeys: ['pvd_calc_v1', 'savings_plan_v1', 'sso_pension_v1'] },
+  { key: 'coach',      label: '🤖 AI Coach',  tables: ['chatMessages'], lsKeys: [] },
 ] as const
 
 export default function Settings() {
@@ -65,6 +76,9 @@ export default function Settings() {
       for (const t of sec.tables) {
         total += await (db as any)[t].count()
       }
+      for (const k of sec.lsKeys) {
+        if (localStorage.getItem(k) != null) total += 1
+      }
       counts[sec.key] = total
     }
     return counts
@@ -94,6 +108,9 @@ export default function Settings() {
         if (!clearSelected.has(sec.key)) continue
         for (const t of sec.tables) {
           await (db as any)[t].clear()
+        }
+        for (const k of sec.lsKeys) {
+          localStorage.removeItem(k)
         }
       }
       const count = totalSelectedCount
@@ -271,6 +288,10 @@ export default function Settings() {
       medicationLogs: await db.medicationLogs.toArray(),
       netWorthSnapshots: await db.netWorthSnapshots.toArray(),
       lumenEntries: await db.lumenEntries.toArray(),
+      recurringIncome: await db.recurringIncome.toArray(),
+      localStorage: Object.fromEntries(
+        BACKUP_LS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v != null)
+      ) as Record<string, string>,
       exportedAt: new Date().toISOString(),
     }
     // Download local copy
@@ -328,6 +349,20 @@ export default function Settings() {
       if (data.medicationLogs) await db.medicationLogs.bulkAdd(data.medicationLogs.map((d: any) => ({ ...d, id: undefined })))
       if (data.netWorthSnapshots) await db.netWorthSnapshots.bulkAdd(data.netWorthSnapshots.map((d: any) => ({ ...d, id: undefined })))
       if (data.lumenEntries) await db.lumenEntries.bulkAdd(data.lumenEntries.map((d: any) => ({ ...d, id: undefined })))
+      if (data.recurringIncome) {
+        // dedup กันซ้ำ: ถ้า restore ทับเครื่องที่มีข้อมูลอยู่แล้ว ต้องไม่สร้างรายการซ้ำ
+        // (ไม่งั้นจะมีรายรับประจำ 2 ก้อน → ลงรายรับเบิ้ลทุกงวด)
+        const sig = (r: any) => `${r.name}|${r.frequency}|${r.startDate}|${r.dayOfMonth}|${r.amount}`
+        const existing = new Set((await db.recurringIncome.toArray()).map(sig))
+        const toAdd = data.recurringIncome.filter((d: any) => !existing.has(sig(d)))
+        if (toAdd.length) await db.recurringIncome.bulkAdd(toAdd.map((d: any) => ({ ...d, id: undefined })))
+      }
+      // localStorage config (งบเดือน/งบปี/PVD/ออมเงิน/ประกันสังคม ฯลฯ) — overwrite ทั้งก้อน
+      if (data.localStorage && typeof data.localStorage === 'object') {
+        for (const [k, v] of Object.entries(data.localStorage)) {
+          if (BACKUP_LS_KEYS.includes(k) && typeof v === 'string') localStorage.setItem(k, v)
+        }
+      }
       setSyncStatus('✓ Import สำเร็จ กำลังโหลดใหม่...')
       setTimeout(() => window.location.reload(), 1500)
     } catch {

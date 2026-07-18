@@ -6,6 +6,7 @@ import type { HealthRecord, HealthDaily, Medication, LumenEntry } from '../db'
 import PageHeader from '../components/PageHeader'
 import { Card, CardTitle, SectionLabel, StatusTag } from '../components/Card'
 import Button, { IconButton, CloseButton } from '../components/Button'
+import DateInput from '../components/DateInput'
 import { getAgeDetail, calcBiologicalAge } from '../utils/calculations'
 import { loadWhoopTokens } from '../api/whoop'
 import { syncWhoopAndSave } from '../api/whoopSync'
@@ -384,22 +385,18 @@ export default function Health() {
             <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-[12px] font-semibold text-gray-600 mb-1">ตั้งแต่วันที่</label>
-                <input
-                  type="date"
+                <DateInput
                   value={exportFrom}
                   max={todayStr}
                   onChange={e => setExportFrom(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[14px] text-gray-800"
                 />
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-gray-600 mb-1">ถึงวันที่</label>
-                <input
-                  type="date"
+                <DateInput
                   value={exportTo}
                   max={todayStr}
                   onChange={e => setExportTo(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-[14px] text-gray-800"
                 />
               </div>
             </div>
@@ -1659,8 +1656,7 @@ function HealthRecordForm({ editItem, onClose }: { editItem: HealthRecord | null
           <h3 className="text-lg font-bold">{editItem ? 'แก้ไข' : 'บันทึก'}ผลตรวจ</h3>
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
-        <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        <DateInput value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))} />
 
         {/* Section tabs */}
         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1797,8 +1793,7 @@ function HealthDailyForm({ editItem, onClose }: { editItem: HealthDaily | null; 
           <h3 className="text-lg font-bold">{editItem ? 'แก้ไข' : 'บันทึก'}กิจกรรม</h3>
           <button onClick={onClose} className="text-gray-400 text-xl">✕</button>
         </div>
-        <input type="date" value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))}
-          className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm w-full" />
+        <DateInput value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))} />
         <div className="grid grid-cols-2 gap-3">
           {[
             ['น้ำหนัก (กก.)', 'weightKg', '60'],
@@ -2136,13 +2131,11 @@ function MedicationForm({ editItem, onClose }: { editItem: Medication | null; on
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="text-[12px] font-semibold text-gray-500 mb-1">วันที่เริ่ม</div>
-            <input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)}
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+            <DateInput value={form.startDate} onChange={e => set('startDate', e.target.value)} />
           </div>
           <div>
             <div className="text-[12px] font-semibold text-gray-500 mb-1">วันที่หยุด (ถ้ามี)</div>
-            <input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)}
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm w-full" />
+            <DateInput value={form.endDate} onChange={e => set('endDate', e.target.value)} />
           </div>
         </div>
 
